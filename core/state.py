@@ -1,19 +1,18 @@
-from core.data import ImageMask
-import numpy as np
-from tempfile import mkdtemp
 import os
-import glob
-class StateManager:
+from core.data import DataManager
+from PyQt6.QtCore import QObject, pyqtSignal
+class StateManager(QObject):
+    image_changed = pyqtSignal(str)
     """
     Manages the application state including the current image index, path, and associated masks and colors.
     """
 
     def __init__(self):
+        super().__init__()  # Initialize the QObject base class
         # Initialize state variables
         self.image_index = -1  # Index of the currently displayed image (-1 means no image loaded)
-        self.image_masks = {}  # Dictionary of masks by image path
+
         self.image_paths = []
-        self.scissors_points = {}  # Store scissors points for each image
         self._current_image = None  # NumPy array of the current image
     
     @property
@@ -26,6 +25,17 @@ class StateManager:
         """
         return self._current_image
 
+    @property
+    def current_image_name(self):
+        """
+        Get the name of the currently displayed image (without extension).
+
+        Returns:
+            str: Name of the current image, or None if no image is loaded.
+        """
+        if self.current_image_path:
+            return os.path.splitext(os.path.basename(self.current_image_path))[0]
+        return None
 
     @current_image.setter
     def current_image(self, image):
@@ -77,7 +87,7 @@ class StateManager:
         Returns:
             list: List of masks for the current image, or an empty list if no masks are available.
         """
-        return self.image_masks.get(self.current_image_path, [])
+        return DataManager().get_masks(self.current_image_name)
 
     @property
     def current_colors(self):
@@ -98,6 +108,7 @@ class StateManager:
         """
         if self.image_index < len(self.image_paths) - 1:
             self.image_index += 1
+            self.image_changed.emit(self.current_image_path)  # Emit signal
             return self.current_image_path
         return None
 
@@ -110,77 +121,9 @@ class StateManager:
         """
         if self.image_index > 0:
             self.image_index -= 1
+            self.image_changed.emit(self.current_image_path)  # Emit signal
             return self.current_image_path
         return None
-    def add_mask(self, mask, image_path= None):
-        """
-        Add a mask for the current image and ensure it is properly saved
-        without overwriting existing masks.
-
-        Args:
-            mask (np.ndarray): The mask to add, as a NumPy array.
-        """
-        # Ensure a current image path exists
-        
-        if not image_path: #if  None -> True
-            image_path = self.current_image_path
-        if not mask.any():
-            return
-   
-            
-        # Ensure the masks directory exists
-        masks_dir = os.path.join(os.getcwd(), 'masks')
-        os.makedirs(masks_dir, exist_ok=True)
-
-        # Use the current image's file name as a base for mask files
-        image_name = os.path.splitext(os.path.basename(image_path))[0]
-        #search_pattern = os.path.join(masks_dir, f"{image_name}*")
-        # Generate a unique filename for the mask
-        existing_masks = self.image_masks.get(image_path)
-        #matching_files = glob.glob(search_pattern)
-        mask_index = len(existing_masks.masks) if existing_masks else 0
-        mask_filename = os.path.join(masks_dir, f"{image_name}_mask_{mask_index + 1}.dat")
-
-        # Save the mask as a memory-mapped file
-        fp = np.memmap(mask_filename, dtype=mask.dtype, mode='w+', shape=mask.shape)
-        fp[:] = mask[:]
-        fp.flush()
-
-        # If no masks exist for this image, create a new ImageMask instance
-        if image_path not in self.image_masks:
-            self.image_masks[image_path] = ImageMask()
-
-        # Append the new memory-mapped mask to the ImageMask instance
-        self.image_masks[image_path].masks.append(fp)
-
-        print(f"Mask added: {mask_filename}")
-
-    def add_masks(self, masks, image_path):
-        """
-        Add multiple masks and their associated colors to the specified image.
-
-        Args:
-            image_path (str): Path of the image to associate the masks with.
-            masks (list of list of tuple): A list of masks, where each mask is a list of (x, y) coordinates.
-            colors (list of tuple): List of colors for the masks, each as an (R, G, B) tuple.
-        """
-        for mask in masks:
-            self.add_mask(mask, image_path)
-
-
-
-
-
-    def clear_masks(self, image_path):
-        """
-        Clear all masks and colors for a specified image.
-
-        Args:
-            image_path (str): Path of the image to clear masks for.
-        """
-        if image_path in self.masks:
-            self.masks[image_path] = []
-
 
     def reset(self):
         """

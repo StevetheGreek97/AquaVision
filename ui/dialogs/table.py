@@ -2,13 +2,12 @@ from PyQt6.QtWidgets import QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem
 import cv2
 import numpy as np
 class MaskResultsDialog(QDialog):
-    def __init__(self, parent, image_path, image_mask):
-        super().__init__(parent)
+    def __init__(self, parent):
+        super().__init__()
+        self.parent = parent
         self.setWindowTitle("Mask Results")
         self.resize(400, 300)
 
-        self.image_path = image_path
-        self.image_mask = image_mask
 
         # Main layout
         layout = QVBoxLayout(self)
@@ -29,19 +28,23 @@ class MaskResultsDialog(QDialog):
         layout.addWidget(self.table)
         layout.addWidget(close_button)
 
+        # Connect image_changed signal to refresh_table
+        self.parent.state_manager.image_changed.connect(self.refresh_table)
+        if self.parent.image_display.masker:
+            self.parent.image_display.masker.mask_added.connect(self.refresh_table)
     def populate_table(self):
         """
         Populate the table with mask IDs and surface areas.
         """
-        if not self.image_mask or not self.image_mask.masks:
+        if not self.parent.state_manager.current_masks:
             self.table.setRowCount(0)
             return
 
         # Calculate surface areas and add rows
-        for idx, mask in enumerate(self.image_mask.masks):
+        for idx, mask in enumerate(self.parent.state_manager.current_masks):
             if isinstance(mask, list):
                 mask = np.array(mask, dtype=np.int32)
-            mask_id = f"{self.image_path}_mask_{idx + 1}"
+            mask_id = f"{self.parent.state_manager.current_image_name}_mask_{idx + 1}"
             surface_area = cv2.contourArea(mask.astype(int))  # Calculate surface area
 
             # Add row to table
@@ -50,11 +53,9 @@ class MaskResultsDialog(QDialog):
             self.table.setItem(row, 0, QTableWidgetItem(mask_id))
             self.table.setItem(row, 1, QTableWidgetItem(f"{surface_area:.2f}"))
 
-    def refresh_table(self, image_path, image_mask):
+    def refresh_table(self, image_path):
         """
-        Refresh the table with the masks of the current image.
+        Refresh the table with the masks of the new current image.
         """
-        self.image_path = image_path
-        self.image_mask = image_mask
         self.table.setRowCount(0)  # Clear the table
         self.populate_table()  # Repopulate the table

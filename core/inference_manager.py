@@ -2,8 +2,8 @@ from ui.dialogs.progress import ProgressDialogManager
 from core.inference_thread import InferenceThread
 from PyQt6.QtCore import QObject
 import numpy as np
-from core.data import ImageMask
-
+from core.data import DataManager
+import os
 class InferenceManager(QObject):
     def __init__(self, parent, mode, display_text):
         super().__init__()
@@ -58,11 +58,12 @@ class InferenceManager(QObject):
         """
         # Update masks in the parent object
 
+        image_name = os.path.splitext(os.path.basename(image_path))[0]
 
-
-
+        for mask in masks:
         # Store the ImageMask in the StateManager
-        self.parent.state_manager.add_masks(masks, image_path)
+            DataManager().save_mask(mask, image_name)
+     
 
         # Update display and sidebar
         #if image_path == self.parent.state_manager.image_paths[self.parent.state_manager.current_image_index]:

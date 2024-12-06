@@ -1,12 +1,13 @@
 import numpy as np
 from PyQt6.QtGui import QPen, QColor
 from PyQt6.QtWidgets import  QGraphicsEllipseItem, QGraphicsLineItem
-
-class ManualMask:
+from PyQt6.QtCore import pyqtSignal, QObject
+from core.data import DataManager
+class ManualMask(QObject):
     """
     A class for manually creating masks by drawing polygon shapes on the displayed image.
     """
-
+    mask_added = pyqtSignal(str, np.ndarray)
     def __init__(self, parent):
         """
         Initialize the ManualMask class.
@@ -14,6 +15,7 @@ class ManualMask:
         Args:
             parent: Reference to the parent ImageDisplay instance.
         """
+        super().__init__()  # Initialize QObject
         self.parent = parent
         self.active = False
         self.temp_points = []  # Points of the current polygon
@@ -88,12 +90,17 @@ class ManualMask:
         # Create the mask polygon
         mask_polygon = np.array(
             [(int(item.rect().center().x()), int(item.rect().center().y())) for item in self.temp_points],
-            dtype=np.int32
+            dtype=np.float32
         )
+        DataManager().save_mask(mask_polygon, self.parent.parent.state_manager.current_image_name)
+        # Emit the signal
+        self.mask_added.emit(self.parent.parent.state_manager.current_image_name, mask_polygon)
+        # Clear temporary items
+        self.clear_temp_items()
 
 
         # Clear temporary items
-        return mask_polygon
+        return 
     def clear_temp_items(self):
         """
         Clear temporary points and lines.

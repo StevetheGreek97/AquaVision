@@ -9,9 +9,7 @@ from PyQt6.QtCore import Qt
 from core.state import StateManager  # Import the StateManager
 from core.inference_manager import  InferenceManager
 from PyQt6.QtCore import pyqtSignal
-import numpy as np
-import cv2
-from core.data import ImageMask
+
 from services.file_handlers import loader
 from services.logger import logger, log_memory_usage
 class MainApp(QMainWindow):
@@ -80,9 +78,9 @@ class MainApp(QMainWindow):
                 self.image_display.masker.clear_temp_items()
             self.image_display.display_image(next_image_path)
             # Emit signal with the new image path and its mask data
-            image_mask = self.state_manager.image_masks.get(next_image_path)
-            self.image_changed.emit(next_image_path, image_mask)
-            logger.info(self.print_current_state())
+            #image_mask = self.state_manager.image_masks.get(next_image_path)
+            #self.image_changed.emit(next_image_path, image_mask)
+            #logger.info(self.print_current_state())
             log_memory_usage()
         else:
             logger.info("No next image available.")
@@ -98,9 +96,9 @@ class MainApp(QMainWindow):
                 self.image_display.masker.clear_temp_items()
             self.image_display.display_image(previous_image_path)
             # Emit signal with the new image path and its mask data
-            image_mask = self.state_manager.image_masks.get(previous_image_path)
-            self.image_changed.emit(previous_image_path, image_mask)
-            self.print_current_state()
+            #image_mask = self.state_manager.image_masks.get(previous_image_path)
+            #self.image_changed.emit(previous_image_path, image_mask)
+            #self.print_current_state()
         else:
             logger.info("No previous image available.")
 
@@ -162,19 +160,19 @@ class MainApp(QMainWindow):
             print("No image is currently loaded.")
             return
 
-        image_mask = self.state_manager.image_masks.get(current_image_path)
-        if not image_mask or not image_mask.masks:
+        image_mask = self.state_manager.current_masks
+        if not image_mask :
             print(f"No masks found for current image: {current_image_path}")
             return
 
         # Open the results dialog
         if not hasattr(self, 'results_dialog') or not self.results_dialog.isVisible():
-            self.results_dialog = MaskResultsDialog(self, current_image_path, image_mask)
+            self.results_dialog = MaskResultsDialog(self)
             self.results_dialog.show()
 
         # Connect the image_changed signal to refresh_table
-        self.image_changed.connect(self.results_dialog.refresh_table)
-        self.masks_updated.connect(self.results_dialog.refresh_table)
+        #self.image_changed.connect(self.results_dialog.refresh_table)
+        #self.masks_updated.connect(self.results_dialog.refresh_table)
 
 
 
@@ -206,25 +204,25 @@ class MainApp(QMainWindow):
 
 
 
-    def print_current_state(self):
-        """
-        Print the current state of the currently displayed image, including its details and associated masks.
-        """
-        current_image_path = self.state_manager.current_image_path
-        current_image = self.state_manager.current_image
+ #   def print_current_state(self):
+ #       """
+ #       Print the current state of the currently displayed image, including its details and associated masks.
+ #       """
+ #       current_image_path = self.state_manager.current_image_path
+ #       current_image = self.state_manager.current_image
+#
+#        # Print current image details
+#        if current_image is not None:
+#            print(f"Currently displayed image path: {current_image_path}")
+#            print(f"Current image shape: {current_image.shape}")
+#        else:
+#            print("No image currently displayed.")
 
-        # Print current image details
-        if current_image is not None:
-            print(f"Currently displayed image path: {current_image_path}")
-            print(f"Current image shape: {current_image.shape}")
-        else:
-            print("No image currently displayed.")
+#        # Print details about the masks for the current image
+#        image_mask = self.state_manager.image_masks.get(current_image_path)
+#        if image_mask:
+#            print(f"Number of masks: {len(image_mask.masks)}")
+#            print(f"Mask shapes: {[mask.shape for mask in image_mask.masks]}")
 
-        # Print details about the masks for the current image
-        image_mask = self.state_manager.image_masks.get(current_image_path)
-        if image_mask:
-            print(f"Number of masks: {len(image_mask.masks)}")
-            print(f"Mask shapes: {[mask.shape for mask in image_mask.masks]}")
-
-        else:
-            print("No masks found for the currently displayed image.")
+#        else:
+#            print("No masks found for the currently displayed image.")
