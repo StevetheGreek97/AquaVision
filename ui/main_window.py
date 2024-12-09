@@ -76,6 +76,8 @@ class MainApp(QMainWindow):
         if next_image_path:
             if self.image_display.masker:
                 self.image_display.masker.clear_temp_items()
+            if self.image_display.sam2_masker:
+                self.image_display.sam2_masker.clear_temp_items()
             self.image_display.display_image(next_image_path)
             # Emit signal with the new image path and its mask data
             #image_mask = self.state_manager.image_masks.get(next_image_path)
@@ -94,6 +96,8 @@ class MainApp(QMainWindow):
         if previous_image_path:
             if self.image_display.masker:
                 self.image_display.masker.clear_temp_items()
+            if self.image_display.sam2_masker:
+                self.image_display.sam2_masker.clear_temp_items()
             self.image_display.display_image(previous_image_path)
             # Emit signal with the new image path and its mask data
             #image_mask = self.state_manager.image_masks.get(previous_image_path)

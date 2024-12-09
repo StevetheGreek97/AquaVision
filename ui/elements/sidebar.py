@@ -21,13 +21,11 @@ class Sidebar(QWidget):
         self.layout = QVBoxLayout(self)
         self.setLayout(self.layout)
         # Add Intelligent Scissors button
-        self.scissors_button = QPushButton("Manual Mask", self)
-        self.scissors_button.setCheckable(True)  # Toggle mode
-        self.scissors_button.clicked.connect(self.toggle_scissors_mode)
-        self.layout.addWidget(self.scissors_button)
+
 
         self._init_navigation_buttons()
-        self._init_drawing_button()
+        self._init_manual_mask()
+        self._init_sam2()
 
     def _init_navigation_buttons(self):
         """
@@ -43,34 +41,37 @@ class Sidebar(QWidget):
 
         self.layout.addLayout(button_layout)
 
-    def _init_drawing_button(self):
-        """
-        Initialize the button to toggle rectangle drawing mode.
-        """
-        self.draw_rect_button = QPushButton("Draw Rectangle")
-        self.draw_rect_button.setCheckable(True)  # Enable toggle functionality
-        self.draw_rect_button.clicked.connect(self._toggle_rectangle_drawing)
-        self.layout.addWidget(self.draw_rect_button)
 
-    def _toggle_rectangle_drawing(self):
-        """
-        Toggle the rectangle drawing mode on/off.
-        """
-        if self.draw_rect_button.isChecked():
-            self.parent.image_display.enable_rectangle_drawing()
-            self.draw_rect_button.setText("Stop Drawing")
-        else:
-            self.parent.image_display.disable_rectangle_drawing()
-            self.draw_rect_button.setText("Draw Rectangle")
+    def _init_manual_mask(self):
+        self.manual_mask = QPushButton("Manual Mask", self)
+        self.manual_mask.setCheckable(True)  # Toggle mode
+        self.manual_mask.clicked.connect(self.toggle_manual_mask)
+        self.layout.addWidget(self.manual_mask)
 
-    def toggle_scissors_mode(self):
+    def _init_sam2(self):
+        self.sam2 = QPushButton("Segment Anything 2", self)
+        self.sam2.setCheckable(True)  # Toggle mode
+        self.sam2.clicked.connect(self.toggle_sam2)
+        self.layout.addWidget(self.sam2)
+
+    def toggle_manual_mask(self):
         """
         Toggle Intelligent Scissors mode in the ImageDisplay.
         """
-        if self.scissors_button.isChecked():
+        if self.manual_mask.isChecked():
             self.parent.image_display.enable_manual_mask()
         else:
             self.parent.image_display.disable_manual_mask()
+    def toggle_sam2(self):
+        """
+        Toggle Intelligent Scissors mode in the ImageDisplay.
+        """
+        if self.sam2.isChecked():
+            self.parent.image_display.enable_sam2()
+        else:
+            self.parent.image_display.disable_sam2()
+
+
     @staticmethod
     def _create_button(label, callback):
         """

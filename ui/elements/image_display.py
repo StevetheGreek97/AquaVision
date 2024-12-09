@@ -1,12 +1,14 @@
 from PyQt6.QtCore import Qt, QPointF
-from PyQt6.QtGui import QImage, QPixmap, QPainter, QPen, QColor
-from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QGraphicsEllipseItem, QGraphicsLineItem
+from PyQt6.QtGui import QImage, QPixmap, QPainter, QPen, QColor, QPolygonF
+from PyQt6.QtWidgets import QGraphicsPolygonItem, QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QGraphicsEllipseItem, QGraphicsLineItem
 import glob
 import cv2
 import numpy as np
 from services.logger import logger, log_memory_usage
 from core.manual_mask import ManualMask
+from core.sam_masker import SamMasker
 import os
+
 
 class ImageDisplay(QGraphicsView):
     """
@@ -40,6 +42,9 @@ class ImageDisplay(QGraphicsView):
 
         # Manual mask mode
         self.masker = None
+
+        self.sam2_masker = None
+
 
     def display_image(self, image_path):
         """
@@ -104,6 +109,22 @@ class ImageDisplay(QGraphicsView):
             self.masker.clear_temp_items()
             self.masker = None
 
+    def enable_sam2(self):
+        """
+        Enable manual mask mode.
+        """
+        self.sam2_masker = SamMasker(self)
+
+        self.sam2_masker.mask_added.connect(self.refresh_overlay)  # Connect signal to refresh display
+
+    def disable_sam2(self):
+        """
+        Disable manual mask mode and clear temporary lines and points.
+        """
+        if self.sam2_masker:
+            self.sam2_masker.clear_temp_items()
+            self.sam2_masker = None
+
     def refresh_overlay(self, image_name, mask):
         """
         Refresh the image overlay when a new mask is added.
@@ -117,6 +138,13 @@ class ImageDisplay(QGraphicsView):
         if event.key() == Qt.Key.Key_S:
             if self.masker:
                 self.masker.complete_mask()
+            if self.sam2_masker:
+                self.sam2_masker.complete_mask()
+        if event.key() == Qt.Key.Key_E:
+            if self.sam2_masker:
+                a = self.sam2_masker.generate_mask(self.parent.state_manager.current_image)
+
+
 
     def fit_to_view(self):
         """
@@ -149,21 +177,29 @@ class ImageDisplay(QGraphicsView):
         Handle mouse presses for scissors and panning.
         """
         if event.button() == Qt.MouseButton.LeftButton:
-             if self.masker:
+            if self.masker:
                 scene_pos = self.mapToScene(event.position().toPoint())
                 point = (int(scene_pos.x()), int(scene_pos.y()))
 
                 self.masker.add_point(point)
                 #print(self.masker.temp_points)
+            if self.sam2_masker:
+                scene_pos = self.mapToScene(event.position().toPoint())
+                point = (int(scene_pos.x()), int(scene_pos.y()))
+
+                self.sam2_masker.add_point(point, 1)
             
 
         elif event.button() == Qt.MouseButton.RightButton:
             if self.masker:
                 self.masker.pop_last_point()
 
+            if self.sam2_masker:
+                scene_pos = self.mapToScene(event.position().toPoint())
+                point = (int(scene_pos.x()), int(scene_pos.y()))
 
 
-
+                self.sam2_masker.add_point(point, 0)
 
         elif event.button() == Qt.MouseButton.MiddleButton:
             # Start panning
