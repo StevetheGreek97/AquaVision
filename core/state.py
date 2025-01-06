@@ -1,5 +1,6 @@
 import os
 from core.data import DataManager
+from PyQt6.QtGui import QColor
 from PyQt6.QtCore import QObject, pyqtSignal
 class StateManager(QObject):
     image_changed = pyqtSignal(str)
@@ -14,7 +15,20 @@ class StateManager(QObject):
 
         self.image_paths = []
         self._current_image = None  # NumPy array of the current image
-    
+        self.mask_colors = {}  # Store mask-to-color mapping
+
+    def set_mask_color(self, mask_id, color):
+        """
+        Set the color for a specific mask ID.
+        """
+        self.mask_colors[mask_id] = color
+
+    def get_mask_color(self, mask_id):
+        """
+        Get the color for a specific mask ID.
+        """
+        return self.mask_colors.get(mask_id, QColor(255, 255, 255))  # Default to white if not set
+
     @property
     def current_image(self):
         """

@@ -17,7 +17,7 @@ class DataManager:
         self.storage_dir = storage_dir
         os.makedirs(self.storage_dir, exist_ok=True)
 
-    def save_mask(self, mask, image_name, mask_index=None):
+    def save_mask(self, mask, image_name, class_name = 'None', mask_index=None):
         """
         Save a mask to a .dat file with a unique name.
 
@@ -43,7 +43,7 @@ class DataManager:
             mask_index = len(existing_files) + 1
 
         # Create the mask file path
-        mask_filename = os.path.join(self.storage_dir, f"{image_name}_mask_{mask_index}.dat")
+        mask_filename = os.path.join(self.storage_dir, f"{image_name}_mask_{mask_index}_{class_name}.dat")
 
         # Save the mask as a memory-mapped file
         fp = np.memmap(mask_filename, dtype=mask.dtype, mode='w+', shape=mask.shape)
@@ -116,6 +116,7 @@ class DataManager:
 
         for mask_file in glob.glob(search_pattern):
             self.delete_mask(mask_file)
+            
     def get_masks(self, image_name):
         """
         Retrieve all masks associated with a given image.

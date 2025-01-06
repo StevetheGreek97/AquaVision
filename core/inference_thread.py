@@ -5,7 +5,7 @@ from ultralytics import YOLO, SAM
 
 
 class InferenceThread(QThread):
-    inference_completed = pyqtSignal(str, list, np.ndarray)  # Signal for progress updates
+    inference_completed = pyqtSignal(str, list, np.ndarray, list)  # Signal for progress updates
 
     def __init__(self, model_path, image_paths, mode):
         super().__init__()
@@ -49,9 +49,14 @@ class InferenceThread(QThread):
                 results = model.predict(image, save_txt=False, save_crop=False, verbose = False)
                 segmentation_results = results[0].masks.xy if results[0].masks else []
                 np_image = np.array(image)
+                # Extract class names
+                class_ids = results[0].boxes.cls.tolist()  # Get class IDs
+                class_names = [model.names[int(cls_id)] for cls_id in class_ids]  # Convert IDs to names
+
+
 
                 # Emit progress signal
-                self.inference_completed.emit(image_path, segmentation_results, np_image)
+                self.inference_completed.emit(image_path, segmentation_results, np_image, class_names)
 
         except Exception as e:
             print(f"Error in YOLO inference: {e}")

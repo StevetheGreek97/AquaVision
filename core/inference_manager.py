@@ -1,9 +1,11 @@
 from ui.dialogs.progress import ProgressDialogManager
 from core.inference_thread import InferenceThread
 from PyQt6.QtCore import QObject
+from PyQt6.QtGui import QColor
 import numpy as np
 from core.data import DataManager
 import os
+import random
 class InferenceManager(QObject):
     def __init__(self, parent, mode, display_text):
         super().__init__()
@@ -52,23 +54,29 @@ class InferenceManager(QObject):
         if self.progress_manager:
             self.progress_manager.close()
 
-    def on_inference_progress(self, image_path, masks, image):
+    def on_inference_progress(self, image_path, masks, image, class_names):
         """
         Handle progress updates during inference.
         """
         # Update masks in the parent object
-
         image_name = os.path.splitext(os.path.basename(image_path))[0]
 
-        for mask in masks:
-        # Store the ImageMask in the StateManager
-            DataManager().save_mask(mask, image_name)
-     
+        for mask, class_name in zip(masks, class_names):
+            # Save the mask using DataManager
+            DataManager().save_mask(mask, image_name, class_name)
 
-        # Update display and sidebar
-        #if image_path == self.parent.state_manager.image_paths[self.parent.state_manager.current_image_index]:
-            #self.parent.image_display.display_image(image_path)
-            #self.parent.sidebar.update_mask_table(image_path, self.parent.image_masks)
+            # Check if the class already exists in the StateManager
+            if class_name not in self.parent.state_manager.mask_colors:
+                # Assign a random color
+                random_color = QColor(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+                
+                # Update StateManager with the new class and color
+                self.parent.state_manager.set_mask_color(class_name, random_color)
+                
+                # Update the Sidebar dropdown
+                self.parent.sidebar.class_dropdown.addItem(f"{class_name} ({random_color.name()})", userData=random_color)
+
+                print(f"Added new class '{class_name}' with color {random_color.name()}")
 
         # Update the progress dialog
         current_value = self.progress_manager.progress_dialog.value() + 1

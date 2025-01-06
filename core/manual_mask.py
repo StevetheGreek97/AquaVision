@@ -92,7 +92,8 @@ class ManualMask(QObject):
             [(int(item.rect().center().x()), int(item.rect().center().y())) for item in self.temp_points],
             dtype=np.float32
         )
-        DataManager().save_mask(mask_polygon, self.parent.parent.state_manager.current_image_name)
+        class_name, selected_color = self.parent.parent.sidebar.get_selected_class_color()
+        DataManager().save_mask(mask_polygon, self.parent.parent.state_manager.current_image_name, class_name)
         # Emit the signal
         self.mask_added.emit(self.parent.parent.state_manager.current_image_name, mask_polygon)
         # Clear temporary items

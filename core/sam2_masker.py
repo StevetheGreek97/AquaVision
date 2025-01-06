@@ -28,7 +28,7 @@ class SamMasker2(QObject):
         self.device = torch.device(device if torch.cuda.is_available() else 'cpu')
 
         # Load the SAM 2 model and predictor
-        sam2_model = build_sam2("sam2_hiera_l.yaml", 'sam2_configs/sam2_hiera_large.pt', device=self.device)
+        sam2_model = build_sam2("sam2_hiera_t.yaml", 'sam2_configs/sam2_hiera_tiny.pt', device=self.device)
         self.predictor = SAM2ImagePredictor(sam2_model)
 
         self.foreground_points = []
@@ -166,8 +166,8 @@ class SamMasker2(QObject):
             mask (numpy.ndarray): The mask to save.
             file_path (str): Path to save the mask.
         """
-        
-        DataManager().save_mask(self.mask, self.parent.parent.state_manager.current_image_name)
+        class_name, selected_color = self.parent.parent.sidebar.get_selected_class_color()
+        DataManager().save_mask(self.mask, self.parent.parent.state_manager.current_image_name, class_name)
         self.mask_added.emit(self.parent.parent.state_manager.current_image_name, self.mask)
         self.clear_temp_items()
         print(f"Mask saved")
