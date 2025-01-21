@@ -5,9 +5,9 @@ import os
 import cv2
 import numpy as np
 from services.logger import logger, log_memory_usage
-from core.manual_mask import ManualMask
-from core.sam2_masker import SamMasker2
-from core.intellignent_scissors import IntelligentScissors
+from core.tools.manual_mask import ManualMask
+from core.tools.sam2_masker import SamMasker2
+from core.tools.intellignent_scissors import IntelligentScissors
 from core.data import DataManager
 class ImageDisplay(QGraphicsView):
     """
@@ -87,20 +87,6 @@ class ImageDisplay(QGraphicsView):
         q_image = QImage(image.data, w, h, ch * w, QImage.Format.Format_RGB888)
         self.pixmap_item.setPixmap(QPixmap.fromImage(q_image))
 
-
-    def overlay_masks2(self, image, alpha=0.5):
-        """
-        Overlay masks on the given image and return the blended image.
-        """
-        overlay = image.copy()
-
-        for mask in self.parent.state_manager.current_masks:
-            color = [int(c) for c in np.random.randint(0, 256, size=3)]  # Random color
-            cv2.fillPoly(overlay, [mask.astype(np.int32)], color)  # Draw the mask on the overlay image
-
-        # Blend the original image and the overlay
-        blended_image = cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0)
-        return blended_image
     def overlay_masks1(self, image, alpha=0.5):
         """
         Overlay masks on the given image using their respective colors.
@@ -111,14 +97,15 @@ class ImageDisplay(QGraphicsView):
         for mask_file in mask_files:
             # mask
             mask = DataManager().load_mask(mask_file)
-            
             filename = os.path.basename(mask_file)
-            parts = filename.split('_')
+            parts = filename.split("||")
+
+            class_name = parts[2].replace('.dat', '')
+            
 
 
-            seg_name = parts[-1].replace('.dat', '')
             # Get the color for the current mask
-            color = self.parent.state_manager.get_mask_color(seg_name)
+            color = self.parent.state_manager.class_manager.get_color_by_name(class_name)
             color_bgr = [color.red(), color.green(), color.blue()]  # Convert to RGB
 
             cv2.fillPoly(overlay, [mask.astype(np.int32)], color_bgr)
@@ -131,6 +118,8 @@ class ImageDisplay(QGraphicsView):
         """
         Enable manual mask mode.
         """
+        self.disable_intelligent_scissors()
+        self.disable_sam2()
         self.masker = ManualMask(self)
         self.masker.mask_added.connect(self.refresh_overlay)  # Connect signal to refresh display
 
@@ -146,6 +135,8 @@ class ImageDisplay(QGraphicsView):
         """
         Enable manual mask mode.
         """
+        self.disable_intelligent_scissors()
+        self.disable_manual_mask()
         self.sam2_masker = SamMasker2(self)
 
         self.sam2_masker.mask_added.connect(self.refresh_overlay)  # Connect signal to refresh display
@@ -162,6 +153,8 @@ class ImageDisplay(QGraphicsView):
         """
         Enable Intelligent Scissors mode.
         """
+        self.disable_intelligent_scissors()
+        self.disable_sam2()
         if self.parent.state_manager.current_image is None:
             print("No image loaded. Please load an image first.")
             return

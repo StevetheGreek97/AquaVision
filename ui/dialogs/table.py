@@ -49,23 +49,25 @@ class MaskResultsDialog(QDialog):
         for idx, mask_file in enumerate(mask_files):
             mask = DataManager().load_mask(mask_file)
             filename = os.path.basename(mask_file)
-            parts = filename.split('_')
+            parts = filename.split("||")
+            image_name = parts[0]  # Before the first '||'
+            mask_id = parts[1]     # Between the first and second '||'
+            class_name = parts[2].replace('.dat', '')
             surface_area = cv2.contourArea(mask.astype(int))
-            mask_id = '_'.join(parts[:-1])
-            seg_name = parts[-1].replace('.dat', '')
+
 
             # Retrieve the associated color for this mask
-            color = self.parent.state_manager.get_mask_color(seg_name)
+            color = self.parent.state_manager.class_manager.get_color_by_name(class_name)
             
 
             # Add row to the table
             row = self.table.rowCount()
             self.table.insertRow(row)
-            self.table.setItem(row, 0, QTableWidgetItem(mask_id))
+            self.table.setItem(row, 0, QTableWidgetItem(image_name))
             self.table.setItem(row, 1, QTableWidgetItem(f"{surface_area:.2f}"))
 
             # Create a QTableWidgetItem for the class name with the color
-            class_item = QTableWidgetItem(seg_name)
+            class_item = QTableWidgetItem(class_name)
             class_item.setForeground(QBrush(color))
             self.table.setItem(row, 2, class_item)
 

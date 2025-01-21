@@ -34,3 +34,10 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 # Export the logger
 __all__ = ["logger", "log_memory_usage"]
+
+# Function to log memory usage
+def log_memory_usage():
+    # Get the current process's memory usage
+    process = psutil.Process()  # This gets the current process
+    memory_info = process.memory_info()  # This gives memory info (in bytes)
+

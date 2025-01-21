@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QMainWindow, QWidget, QFileDialog, QHBoxLayout
+from PyQt6.QtWidgets import QMainWindow, QWidget, QFileDialog, QHBoxLayout, QColorDialog, QInputDialog
 from ui.elements.image_display import ImageDisplay
 from ui.elements.menubar import MenuBar
 from ui.elements.sidebar import Sidebar
@@ -9,9 +9,10 @@ from PyQt6.QtCore import Qt
 from core.state import StateManager  # Import the StateManager
 from core.inference_manager import  InferenceManager
 from PyQt6.QtCore import pyqtSignal
-
+from core.export_manager import YOLOAnnotationExporter
 from services.file_handlers import loader
 from services.logger import logger, log_memory_usage
+
 class MainApp(QMainWindow):
     image_changed = pyqtSignal(str, object)
     masks_updated = pyqtSignal()
@@ -146,13 +147,19 @@ class MainApp(QMainWindow):
         elif event.key() == Qt.Key.Key_Left:  # Previous image
             self.previous_image()
 
+    #def closeEvent(self, event):
+    #    """
+    #    Ensure threads are stopped before closing the application.
+    #    """
+    #    if self.inference_manager:
+    #        print("Stopping inference before closing...")
+    #        self.inference_manager.stop_inference()
+        event.accept()
     def closeEvent(self, event):
-        """
-        Ensure threads are stopped before closing the application.
-        """
-        if self.inference_manager:
-            print("Stopping inference before closing...")
-            self.inference_manager.stop_inference()
+        if hasattr(self, 'export_thread') and self.export_thread.isRunning():
+            print("Stopping export thread...")
+            self.export_thread.stop()
+            self.export_thread.wait()
         event.accept()
 
     def show_results(self):
@@ -177,13 +184,56 @@ class MainApp(QMainWindow):
         # Connect the image_changed signal to refresh_table
         #self.image_changed.connect(self.results_dialog.refresh_table)
         #self.masks_updated.connect(self.results_dialog.refresh_table)
+    def _export_results(self):
+        exporter = YOLOAnnotationExporter(self)
+        exporter.export_all_annotations()
 
 
 
 
 
+    def add_class(self):
+        """
+        Add a new class with a selected color to the dropdown.
+        """
+        # Prompt the user to enter a class name
+        class_name, ok = QInputDialog.getText(self, "Add Class", "Enter class name:")
+        if not ok or not class_name.strip():
+            return
+
+        # Open a color picker to select a color
+        color = QColorDialog.getColor()
+        if not color.isValid():
+            return
+
+        # Add the new class and its color to the dropdown
+        idx = self.sidebar.class_dropdown.count()
+        self.sidebar.class_dropdown.addItem(f"{class_name} ({color.name()})", userData=color)
+        
+        # Update the state manager with the new class and color
+        self.state_manager.class_manager.add_class(idx, class_name, color)
+        #for key, pair in self.state_manager.class_manager.classes.items():
+        #   print(f"{key}: value1 = {pair.name}")
+        #print()
 
 
+
+    def remove_selected_class(self):
+        """
+        Remove the currently selected class from the dropdown.
+        """
+        current_index = self.sidebar.class_dropdown.currentIndex()
+        print(current_index)
+        
+        if current_index >= 0:
+            self.state_manager.class_manager.remove_class(current_index)            
+            self.sidebar.class_dropdown.removeItem(current_index)
+
+            
+
+        #for key, pair in self.state_manager.class_manager.classes.items():
+        #    print(f"{key}: value1 = {pair.name}")
+        #print()
 
 
 

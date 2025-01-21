@@ -29,13 +29,11 @@ class DataManager:
         Returns:
             str: Path to the saved .dat file.
         """
-        if mask is None or not mask.any():
-            raise ValueError("Mask is empty or None. Cannot save.")
-        
+
         # Ensure the mask is of type float32
         mask = mask.astype(np.float32)
         # Generate the search pattern for existing masks
-        search_pattern = os.path.join(self.storage_dir, f"{image_name}_mask_*.dat")
+        search_pattern = os.path.join(self.storage_dir, f"{image_name}||mask_*.dat")
         existing_files = glob.glob(search_pattern)
 
         # Determine the next mask index if not provided
@@ -43,7 +41,7 @@ class DataManager:
             mask_index = len(existing_files) + 1
 
         # Create the mask file path
-        mask_filename = os.path.join(self.storage_dir, f"{image_name}_mask_{mask_index}_{class_name}.dat")
+        mask_filename = os.path.join(self.storage_dir, f"{image_name}||mask_{mask_index}||{class_name}.dat")
 
         # Save the mask as a memory-mapped file
         fp = np.memmap(mask_filename, dtype=mask.dtype, mode='w+', shape=mask.shape)
@@ -86,7 +84,7 @@ class DataManager:
         Returns:
             list: Paths to all .dat files for the image's masks.
         """
-        search_pattern = os.path.join(self.storage_dir, f"{image_name}_mask_*.dat")
+        search_pattern = os.path.join(self.storage_dir, f"{image_name}||mask_*.dat")
         return glob.glob(search_pattern)
 
     def delete_mask(self, mask_file):
@@ -110,7 +108,7 @@ class DataManager:
             image_name (str, optional): Name of the image. If None, clears all masks.
         """
         if image_name:
-            search_pattern = os.path.join(self.storage_dir, f"{image_name}_mask_*.dat")
+            search_pattern = os.path.join(self.storage_dir, f"{image_name}||mask_*.dat")
         else:
             search_pattern = os.path.join(self.storage_dir, "*.dat")
 
@@ -130,3 +128,9 @@ class DataManager:
         mask_files = self.list_masks(image_name)
         masks = [self.load_mask(mask_file) for mask_file in mask_files]
         return masks
+    
+class ClassIdx:
+    __slots__ = ('name', 'color')
+    def __init__(self, name, color):
+        self.name = name
+        self.color = color

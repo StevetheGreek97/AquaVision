@@ -33,7 +33,7 @@ class MenuBar(QMenuBar):
             ("Load Images", self.parent.load_images),
             ("Show Results", self.parent.show_results), 
             ("Save Results", None),
-            ("Export Results", None),  # Placeholder for future implementation
+            ("Export Results", self.parent._export_results), 
             ("Exit", self.parent.close),
         ]
 

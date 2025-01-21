@@ -55,7 +55,7 @@ class InferenceThread(QThread):
 
 
 
-                # Emit progress signal
+                # Emit progress signal ""     str         list                  np.ndarray list
                 self.inference_completed.emit(image_path, segmentation_results, np_image, class_names)
 
         except Exception as e:

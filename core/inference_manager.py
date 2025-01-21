@@ -58,20 +58,24 @@ class InferenceManager(QObject):
         """
         Handle progress updates during inference.
         """
-        # Update masks in the parent object
         image_name = os.path.splitext(os.path.basename(image_path))[0]
 
         for mask, class_name in zip(masks, class_names):
-            # Save the mask using DataManager
-            DataManager().save_mask(mask, image_name, class_name)
+
+            
+            if  mask is not None and  mask.size > 0: # Checking if the np.ndarray is empty
+                # Save the mask using DataManager
+                DataManager().save_mask(mask, image_name, class_name)
 
             # Check if the class already exists in the StateManager
-            if class_name not in self.parent.state_manager.mask_colors:
+            if class_name not in self.parent.state_manager.class_manager.get_all_class_names():
+
                 # Assign a random color
                 random_color = QColor(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
                 
-                # Update StateManager with the new class and color
-                self.parent.state_manager.set_mask_color(class_name, random_color)
+                # Add the new class with its color
+                class_idx = len(self.parent.state_manager.class_manager.classes)
+                self.parent.state_manager.class_manager.add_class(class_idx, class_name, random_color)
                 
                 # Update the Sidebar dropdown
                 self.parent.sidebar.class_dropdown.addItem(f"{class_name} ({random_color.name()})", userData=random_color)
