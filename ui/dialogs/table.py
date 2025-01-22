@@ -109,7 +109,11 @@ class MaskResultsDialog(QDialog):
         self.masks_selected.emit(selected_rows)
 
         #Enable mask editor for the selected rows
-        #self.parent.image_display.enable_mask_editor(selected_rows)
+        if selected_rows:
+            self.parent.image_display.enable_mask_editor(selected_rows)
+        else:
+            self.parent.image_display.disable_mask_editor()
+
 
 
 
@@ -125,5 +129,5 @@ class MaskResultsDialog(QDialog):
 
             # Find the mask file and rename it
             DataManager().rename_class(image_name, mask_id, new_class_name)
-            print(f"Updated class for Mask ID: {mask_id} to {new_class_name}")
+            #print(f"Updated class for Mask ID: {mask_id} to {new_class_name}")
 

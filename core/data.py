@@ -151,6 +151,8 @@ class DataManager:
             # Rename the file
             os.rename(mask_file, new_filename)
             print(f"Renamed {old_mask_id} to {new_mask_id}")
+
+
     def rename_class(self, image_name, mask_id, new_class_name):
         """
         Rename the class name for a given mask file.
@@ -173,7 +175,6 @@ class DataManager:
         parts = os.path.basename(old_file).split("||")
         new_filename = os.path.join(self.storage_dir, f"{parts[0]}||{parts[1]}||{new_class_name}.dat")
         os.rename(old_file, new_filename)
-        print(f"Renamed {old_file} to {new_filename}")
         
 class ClassIdx:
     __slots__ = ('name', 'color')
