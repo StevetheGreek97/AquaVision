@@ -7,6 +7,7 @@ import numpy as np
 from services.logger import logger, log_memory_usage
 from core.tools.manual_mask import ManualMask
 from core.tools.sam2_masker import SamMasker2
+from core.tools.MaskEditor import MaskEditor
 from core.tools.intellignent_scissors import IntelligentScissors
 from core.data import DataManager
 class ImageDisplay(QGraphicsView):
@@ -17,6 +18,8 @@ class ImageDisplay(QGraphicsView):
     def __init__(self, parent):
         super().__init__()
         self.parent = parent
+
+        self.highlighted_mask_ids = []
 
         # Set up the QGraphicsScene
         self.scene = QGraphicsScene(self)
@@ -47,6 +50,7 @@ class ImageDisplay(QGraphicsView):
         self.masker = None
         self.sam2_masker = None
         self.intelligent_scissors = None
+        self.mask_editor = None
         
 
     def display_image(self, image_path):
@@ -69,7 +73,7 @@ class ImageDisplay(QGraphicsView):
         self.parent.state_manager.current_image = image  # Update state with current image
 
         # Retrieve the masks and overlay them
-        image = self.overlay_masks1(image)
+        image = self.overlay_masks(image)
 
         self._update_pixmap(image)
         
@@ -78,7 +82,48 @@ class ImageDisplay(QGraphicsView):
         self._zoom_factor = 1.0
         self.scene.setSceneRect(self.pixmap_item.boundingRect())
         self.fitInView(self.pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
-   
+
+    def overlay_masks(self, image, alpha=0.5):
+        """
+        Overlay masks on the given image, highlighting selected masks.
+        """
+        overlay = image.copy()
+        mask_files = DataManager().list_masks(self.parent.state_manager.current_image_name)
+
+        for mask_file in mask_files:
+            mask = DataManager().load_mask(mask_file)
+            filename = os.path.basename(mask_file)
+            parts = filename.split("||")
+            mask_id = parts[1]
+            class_name = parts[2].replace('.dat', '')
+
+            # Debugging: Log Mask ID
+            print(f"Processing Mask ID: {mask_id}")
+
+            # Get the color for the current mask
+            color = self.parent.state_manager.class_manager.get_color_by_name(class_name)
+            color_bgr = [color.red(), color.green(), color.blue()]  # Convert to RGB
+
+            cv2.fillPoly(overlay, [mask.astype(np.int32)], color_bgr)
+
+            # Highlight the selected masks
+            if mask_id in self.highlighted_mask_ids:
+                print(f"Highlighting Mask ID: {mask_id}")  # Debugging
+                cv2.polylines(overlay, [mask.astype(np.int32)], isClosed=True, color=(0, 0, 0), thickness=3)
+
+        # Blend the original image and the overlay
+        blended_image = cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0)
+        return blended_image
+
+
+    def fit_to_view(self):
+        """
+        Fit the entire image to the view.
+        """
+        self.resetTransform()
+        self._zoom_factor = 1.0
+        self.fitInView(self.pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
+
     def _update_pixmap(self, image):
         """
         Update the displayed image in the QGraphicsPixmapItem.
@@ -87,32 +132,42 @@ class ImageDisplay(QGraphicsView):
         q_image = QImage(image.data, w, h, ch * w, QImage.Format.Format_RGB888)
         self.pixmap_item.setPixmap(QPixmap.fromImage(q_image))
 
-    def overlay_masks1(self, image, alpha=0.5):
+    def set_highlighted_masks(self, selected_rows):
         """
-        Overlay masks on the given image using their respective colors.
+        Set the highlighted masks based on the selected rows emitted from MaskResultsDialog.
         """
-        overlay = image.copy()
-        mask_files = DataManager().list_masks(self.parent.state_manager.current_image_name)
+        # Extract only the Mask IDs from the selected rows
+        self.highlighted_mask_ids = [row["mask_id"] for row in selected_rows]
+        print(f"Selected Mask IDs: {self.highlighted_mask_ids}")  # Debugging
 
+        # Redraw the image with the highlighted masks
+        self.display_image(self.parent.state_manager.current_image_path)
+
+    def delete_selected_masks(self):
+        """
+        Delete the masks currently highlighted and reindex remaining masks.
+        """
+        if not self.highlighted_mask_ids:
+            print("No masks selected for deletion.")
+            return
+
+        mask_files = DataManager().list_masks(self.parent.state_manager.current_image_name)
         for mask_file in mask_files:
-            # mask
-            mask = DataManager().load_mask(mask_file)
             filename = os.path.basename(mask_file)
             parts = filename.split("||")
+            mask_id = parts[1]
 
-            class_name = parts[2].replace('.dat', '')
-            
+            if mask_id in self.highlighted_mask_ids:
+                print(f"Deleting Mask ID: {mask_id}")  # Debugging
+                os.remove(mask_file)  # Remove the mask file
+                self.highlighted_mask_ids.remove(mask_id)  # Remove from highlighted list
 
+        # Reindex the remaining masks
+        DataManager().reindex_masks(self.parent.state_manager.current_image_name)
 
-            # Get the color for the current mask
-            color = self.parent.state_manager.class_manager.get_color_by_name(class_name)
-            color_bgr = [color.red(), color.green(), color.blue()]  # Convert to RGB
-
-            cv2.fillPoly(overlay, [mask.astype(np.int32)], color_bgr)
-
-        # Blend the original image and the overlay
-        blended_image = cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0)
-        return blended_image
+        # Refresh the display and results dialog after deletion
+        self.display_image(self.parent.state_manager.current_image_path)
+        self.parent.show_results()  # Refresh the results dialog
 
     def enable_manual_mask(self):
         """
@@ -172,7 +227,7 @@ class ImageDisplay(QGraphicsView):
             self.intelligent_scissors.clear_polygon()
             self.intelligent_scissors = None
             print("Intelligent Scissors disabled.")
-
+    
     def refresh_overlay(self, image_name, mask):
         """
         Refresh the image overlay when a new mask is added.
@@ -194,16 +249,6 @@ class ImageDisplay(QGraphicsView):
             if self.sam2_masker:
                 a = self.sam2_masker.generate_mask(self.parent.state_manager.current_image)
 
-
-
-    def fit_to_view(self):
-        """
-        Fit the entire image to the view.
-        """
-        self.resetTransform()
-        self._zoom_factor = 1.0
-        self.fitInView(self.pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
-
     def wheelEvent(self, event):
         """
         Zoom in or out using the mouse wheel, with zoom limits.
@@ -221,7 +266,6 @@ class ImageDisplay(QGraphicsView):
                 self.scale(zoom_step, zoom_step)
                 self._zoom_factor *= zoom_step
 
-
     def mousePressEvent(self, event):
         """
         Handle mouse presses for scissors and panning.
@@ -237,8 +281,6 @@ class ImageDisplay(QGraphicsView):
 
             if self.intelligent_scissors:
                 self.intelligent_scissors.add_seed_point(point)
-                print('here')
-            
 
         elif event.button() == Qt.MouseButton.RightButton:
             if self.masker:
@@ -256,7 +298,6 @@ class ImageDisplay(QGraphicsView):
             self._is_panning = True
             self._pan_start = event.position()
 
-
     def mouseMoveEvent(self, event):
         """
         Update the live wire dynamically as the cursor moves.
@@ -273,16 +314,14 @@ class ImageDisplay(QGraphicsView):
 
         scene_pos = self.mapToScene(event.position().toPoint())
         self.x, self.y = int(scene_pos.x()), int(scene_pos.y())
-        #print(f"Mouse Coordinates: x={self.x}, y={self.y}")
 
         # Update the dynamic path for Intelligent Scissors
         if self.intelligent_scissors and self.intelligent_scissors.seed_points:
             self.intelligent_scissors.update_dynamic_path((self.x, self.y))
+    
     def mouseReleaseEvent(self, event):
         """
         Stop panning when the middle mouse button is released.
         """
         if event.button() == Qt.MouseButton.MiddleButton:
             self._is_panning = False
-
- 

@@ -1,11 +1,11 @@
-from PyQt6.QtWidgets import QMainWindow, QWidget, QFileDialog, QHBoxLayout, QColorDialog, QInputDialog
+from PyQt6.QtWidgets import QMainWindow, QWidget, QFileDialog, QHBoxLayout, QColorDialog, QInputDialog,QApplication
 from ui.elements.image_display import ImageDisplay
 from ui.elements.menubar import MenuBar
 from ui.elements.sidebar import Sidebar
 from ui.dialogs.inference_dialog import InferenceDialog
 from ui.dialogs.table import MaskResultsDialog
 import os
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QEvent
 from core.state import StateManager  # Import the StateManager
 from core.inference_manager import  InferenceManager
 from PyQt6.QtCore import pyqtSignal
@@ -15,7 +15,7 @@ from services.logger import logger, log_memory_usage
 
 class MainApp(QMainWindow):
     image_changed = pyqtSignal(str, object)
-    masks_updated = pyqtSignal()
+    #masks_updated = pyqtSignal()
     """
     Main application window.
     """
@@ -24,7 +24,7 @@ class MainApp(QMainWindow):
         super().__init__()
         self.setWindowTitle("AquaVision")
         self.resize(1000, 600)
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        #self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         self.models_dir = "models/yolo"
         self.sam_dir = "models/sam"
@@ -48,6 +48,7 @@ class MainApp(QMainWindow):
         layout = QHBoxLayout(central_widget)
         layout.addWidget(self.sidebar, stretch=1)
         layout.addWidget(self.image_display, stretch=4)
+        QApplication.instance().installEventFilter(self)
 
     def load_images(self):
         """
@@ -136,25 +137,19 @@ class MainApp(QMainWindow):
                     self.current_model_path, self.state_manager.image_paths
                 )
 
-    def keyPressEvent(self, event):
-        """
-        Handle key press events for navigation and mask deletion.
-        """
-        if event.key() == Qt.Key.Key_Delete:
-            pass  # Add mask deletion logic here
-        elif event.key() == Qt.Key.Key_Right:  # Next image
-            self.next_image()
-        elif event.key() == Qt.Key.Key_Left:  # Previous image
-            self.previous_image()
+   # def keyPressEvent(self, event):
+   #     """
+   #     Handle key press events for navigation and mask deletion.
+   #     """
+#
+ #       if event.key() == Qt.Key.Key_Right:  # Next image
+  #          self.next_image()
+   #     elif event.key() == Qt.Key.Key_Left:  # Previous image
+    #       self.previous_image()
 
-    #def closeEvent(self, event):
-    #    """
-    #    Ensure threads are stopped before closing the application.
-    #    """
-    #    if self.inference_manager:
-    #        print("Stopping inference before closing...")
-    #        self.inference_manager.stop_inference()
-        event.accept()
+            
+
+        #event.accept()
     def closeEvent(self, event):
         if hasattr(self, 'export_thread') and self.export_thread.isRunning():
             print("Stopping export thread...")
@@ -172,25 +167,23 @@ class MainApp(QMainWindow):
             return
 
         image_mask = self.state_manager.current_masks
-        if not image_mask :
+        if not image_mask:
             print(f"No masks found for current image: {current_image_path}")
             return
 
-        # Open the results dialog
-        if not hasattr(self, 'results_dialog') or not self.results_dialog.isVisible():
+        # Open the results dialog or refresh it if already open
+        if hasattr(self, 'results_dialog') and self.results_dialog.isVisible():
+            print("Refreshing the results dialog...")
+            self.results_dialog.refresh_table(current_image_path)  # Refresh the table
+        else:
+            print("Opening a new results dialog...")
             self.results_dialog = MaskResultsDialog(self)
+            self.results_dialog.masks_selected.connect(self.image_display.set_highlighted_masks)
             self.results_dialog.show()
 
-        # Connect the image_changed signal to refresh_table
-        #self.image_changed.connect(self.results_dialog.refresh_table)
-        #self.masks_updated.connect(self.results_dialog.refresh_table)
     def _export_results(self):
         exporter = YOLOAnnotationExporter(self)
         exporter.export_all_annotations()
-
-
-
-
 
     def add_class(self):
         """
@@ -216,8 +209,6 @@ class MainApp(QMainWindow):
         #   print(f"{key}: value1 = {pair.name}")
         #print()
 
-
-
     def remove_selected_class(self):
         """
         Remove the currently selected class from the dropdown.
@@ -236,17 +227,24 @@ class MainApp(QMainWindow):
         #print()
 
 
+    def eventFilter(self, source, event):
+        """
+        Handle global key events for navigation and deletion.
+        """
+        if event.type() == QEvent.Type.KeyPress:
+            if event.key() == Qt.Key.Key_Delete:
+                print("Delete key pressed")
+                self.image_display.delete_selected_masks()
+                self.show_results()  # Update results
+                return True
+            elif event.key() == Qt.Key.Key_Right:  # Navigate to the next image
+                self.next_image()
+                return True
+            elif event.key() == Qt.Key.Key_Left:  # Navigate to the previous image
+                self.previous_image()
+                return True
 
-
-
-
-
-
-
-
-
-
-
+        return super().eventFilter(source, event)
 
 
 

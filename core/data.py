@@ -128,7 +128,53 @@ class DataManager:
         mask_files = self.list_masks(image_name)
         masks = [self.load_mask(mask_file) for mask_file in mask_files]
         return masks
-    
+    def reindex_masks(self, image_name):
+        """
+        Reindex the mask IDs for the given image after a mask is deleted.
+        Ensures contiguous numbering (mask_1, mask_2, ...).
+        
+        Args:
+            image_name (str): Name of the image whose masks need reindexing.
+        """
+        mask_files = self.list_masks(image_name)
+        mask_files_sorted = sorted(mask_files, key=lambda x: int(x.split("||")[1].split("_")[1]))
+        
+        for new_index, mask_file in enumerate(mask_files_sorted, start=1):
+            parts = os.path.basename(mask_file).split("||")
+            old_mask_id = parts[1]  # e.g., "mask_3"
+            class_name = parts[2].replace('.dat', '')  # Class name without .dat extension
+            
+            # Generate new mask filename
+            new_mask_id = f"mask_{new_index}"
+            new_filename = os.path.join(self.storage_dir, f"{image_name}||{new_mask_id}||{class_name}.dat")
+            
+            # Rename the file
+            os.rename(mask_file, new_filename)
+            print(f"Renamed {old_mask_id} to {new_mask_id}")
+    def rename_class(self, image_name, mask_id, new_class_name):
+        """
+        Rename the class name for a given mask file.
+
+        Args:
+            image_name (str): Name of the image associated with the mask.
+            mask_id (str): Mask ID (e.g., "mask_1").
+            new_class_name (str): New class name.
+        """
+        # Search for the mask file
+        search_pattern = os.path.join(self.storage_dir, f"{image_name}||{mask_id}||*.dat")
+        mask_files = glob.glob(search_pattern)
+
+        if not mask_files:
+            print(f"No mask file found for {mask_id}")
+            return
+
+        # Rename the mask file
+        old_file = mask_files[0]
+        parts = os.path.basename(old_file).split("||")
+        new_filename = os.path.join(self.storage_dir, f"{parts[0]}||{parts[1]}||{new_class_name}.dat")
+        os.rename(old_file, new_filename)
+        print(f"Renamed {old_file} to {new_filename}")
+        
 class ClassIdx:
     __slots__ = ('name', 'color')
     def __init__(self, name, color):
