@@ -2,8 +2,9 @@ models/
 masks/
 jup_tester/
 __pycache__/
-core/__pycache__/
+core/__pycache__
+services/__pycache__
 .ipynb_checkpoints
 app.log
 sam2_configs/
-tester..py
+tester.py
