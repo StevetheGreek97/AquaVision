@@ -14,6 +14,7 @@ class MaskResultsDialog(QDialog):
         self.setWindowTitle("Mask Results")
         self.resize(400, 300)
 
+        
 
         # Main layout
         layout = QVBoxLayout(self)
@@ -23,6 +24,8 @@ class MaskResultsDialog(QDialog):
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["Image Name", "Mask ID", "Surface Area", "Class"])
         self.table.itemChanged.connect(self.on_item_changed)  # Detect changes in the table
+        self.table.setSelectionMode(QTableWidget.SelectionMode.MultiSelection)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
 
         # Populate the table
         self.populate_table()
@@ -93,6 +96,8 @@ class MaskResultsDialog(QDialog):
         Emit all selected rows as a list of dictionaries and enable mask editing.
         """
         selected_rows = []
+        selected_mask_ids = []  # To ensure multiple masks are tracked
+
         for item in self.table.selectedItems():
             if item.column() == 1:  # Mask ID column
                 row = item.row()
@@ -102,6 +107,7 @@ class MaskResultsDialog(QDialog):
                     "class": self.table.item(row, 3).text()
                 }
                 selected_rows.append(row_data)
+                selected_mask_ids.append(row_data["mask_id"])
 
         print(f"Selected Rows: {selected_rows}")  # Debugging
 
@@ -110,7 +116,8 @@ class MaskResultsDialog(QDialog):
 
         #Enable mask editor for the selected rows
         if selected_rows:
-            self.parent.image_display.enable_mask_editor(selected_rows)
+            #self.parent.image_display.enable_mask_editor(selected_rows)
+            self.parent.image_display.highlighted_mask_ids = selected_mask_ids
         else:
             self.parent.image_display.disable_mask_editor()
 

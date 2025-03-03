@@ -17,31 +17,32 @@ class DataManager:
         self.storage_dir = storage_dir
         os.makedirs(self.storage_dir, exist_ok=True)
 
-    def save_mask(self, mask, image_name, class_name = 'None', mask_index=None):
+    def save_mask(self, mask, image_name, class_name='None'):
         """
         Save a mask to a .dat file with a unique name.
 
         Args:
-            mask (np.ndarray): The mask to save as a NumPy array.
-            image_name (str): Name of the image the mask belongs to (used for filenames).
-            mask_index (int, optional): Index of the mask. If None, automatically determined.
+            mask (np.ndarray): The mask to save.
+            image_name (str): Name of the image the mask belongs to.
+            class_name (str): Class name of the mask.
 
         Returns:
             str: Path to the saved .dat file.
         """
-
-        # Ensure the mask is of type float32
         mask = mask.astype(np.float32)
-        # Generate the search pattern for existing masks
+        
+        # Find the next available index
         search_pattern = os.path.join(self.storage_dir, f"{image_name}||mask_*.dat")
         existing_files = glob.glob(search_pattern)
+        existing_indices = {
+            int(os.path.basename(f).split("||")[1].split("_")[1]) for f in existing_files
+        }
 
-        # Determine the next mask index if not provided
-        if mask_index is None:
-            mask_index = len(existing_files) + 1
+        next_index = 1
+        while next_index in existing_indices:
+            next_index += 1  # Find first unused index
 
-        # Create the mask file path
-        mask_filename = os.path.join(self.storage_dir, f"{image_name}||mask_{mask_index}||{class_name}.dat")
+        mask_filename = os.path.join(self.storage_dir, f"{image_name}||mask_{next_index}||{class_name}.dat")
 
         # Save the mask as a memory-mapped file
         fp = np.memmap(mask_filename, dtype=mask.dtype, mode='w+', shape=mask.shape)
@@ -128,29 +129,53 @@ class DataManager:
         mask_files = self.list_masks(image_name)
         masks = [self.load_mask(mask_file) for mask_file in mask_files]
         return masks
+
+
     def reindex_masks(self, image_name):
         """
-        Reindex the mask IDs for the given image after a mask is deleted.
-        Ensures contiguous numbering (mask_1, mask_2, ...).
+        Reindex the mask IDs for the given image after masks are deleted.
+        Ensures contiguous numbering while preventing overwrites.
         
         Args:
             image_name (str): Name of the image whose masks need reindexing.
         """
         mask_files = self.list_masks(image_name)
-        mask_files_sorted = sorted(mask_files, key=lambda x: int(x.split("||")[1].split("_")[1]))
-        
-        for new_index, mask_file in enumerate(mask_files_sorted, start=1):
-            parts = os.path.basename(mask_file).split("||")
-            old_mask_id = parts[1]  # e.g., "mask_3"
-            class_name = parts[2].replace('.dat', '')  # Class name without .dat extension
+
+        # Extract and sort existing mask indices
+        indexed_masks = []
+        for mask_file in mask_files:
+            filename = os.path.basename(mask_file)
+            parts = filename.split("||")
+            if len(parts) < 3:
+                continue  # Skip invalid files
             
-            # Generate new mask filename
-            new_mask_id = f"mask_{new_index}"
-            new_filename = os.path.join(self.storage_dir, f"{image_name}||{new_mask_id}||{class_name}.dat")
+            try:
+                mask_index = int(parts[1].split("_")[1])  # Extract mask index
+            except ValueError:
+                continue  # Skip if not a valid integer
+
+            indexed_masks.append((mask_index, mask_file, parts[2].replace('.dat', '')))  # Store (index, path, class)
+
+        if not indexed_masks:
+            return  # No masks to reindex
+
+        # Sort by existing mask index
+        indexed_masks.sort()
+
+        # Find the lowest missing index
+        used_indices = {idx for idx, _, _ in indexed_masks}
+        available_index = 1  # Start reindexing from 1
+
+        for old_index, mask_file, class_name in indexed_masks:
+            if available_index in used_indices:
+                available_index += 1  # Move to the next available slot
             
-            # Rename the file
-            os.rename(mask_file, new_filename)
-            print(f"Renamed {old_mask_id} to {new_mask_id}")
+            if old_index != available_index:
+                new_filename = os.path.join(self.storage_dir, f"{image_name}||mask_{available_index}||{class_name}.dat")
+                os.rename(mask_file, new_filename)
+                print(f"Renamed mask_{old_index} to mask_{available_index}")
+
+            used_indices.add(available_index)
 
 
     def rename_class(self, image_name, mask_id, new_class_name):

@@ -1,5 +1,6 @@
 models/
 masks/
+masks_grand/
 jup_tester/
 __pycache__/
 core/__pycache__
@@ -8,3 +9,4 @@ services/__pycache__
 app.log
 sam2_configs/
 tester.py
+.vscode

@@ -37,6 +37,7 @@ class SamMasker2(QObject):
         self.background_items = []
 
         self.current_polygon_item = None  # Reference to the currently displayed polygon
+        self.mask = None
 
     def add_point(self, point, label):
         """
@@ -169,8 +170,11 @@ class SamMasker2(QObject):
             mask (numpy.ndarray): The mask to save.
             file_path (str): Path to save the mask.
         """
-        class_name, selected_color = self.parent.parent.sidebar.get_selected_class_color()
-        DataManager().save_mask(self.mask, self.parent.parent.state_manager.current_image_name, class_name)
-        self.mask_added.emit(self.parent.parent.state_manager.current_image_name, self.mask)
-        self.clear_temp_items()
-        print(f"Mask saved")
+        if self.mask is not None:
+            class_name, selected_color = self.parent.parent.sidebar.get_selected_class_color()
+            DataManager().save_mask(self.mask, self.parent.parent.state_manager.current_image_name, class_name)
+            self.mask_added.emit(self.parent.parent.state_manager.current_image_name, self.mask)
+            self.clear_temp_items()
+            print(f"Mask saved")
+        else:
+            print('There is no mask to be saved. Hit -e- to execute')

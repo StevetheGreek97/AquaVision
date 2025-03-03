@@ -1,6 +1,6 @@
 from PyQt6.QtCore import Qt, QPointF
 from PyQt6.QtGui import QImage, QPixmap, QPainter
-from PyQt6.QtWidgets import  QGraphicsView, QGraphicsScene, QGraphicsPixmapItem
+from PyQt6.QtWidgets import  QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QTableWidget
 import os
 import cv2
 import numpy as np
@@ -75,8 +75,8 @@ class ImageDisplay(QGraphicsView):
         # Retrieve the masks and overlay them
         image = self.overlay_masks(image)
 
-        if self.mask_editor and self.mask_editor.is_editing:
-            image = self.overlay_editing_masks(image)
+        #if self.mask_editor and self.mask_editor.is_editing:
+        #    image = self.overlay_editing_masks(image)
 
         self._update_pixmap(image)
         
@@ -86,12 +86,14 @@ class ImageDisplay(QGraphicsView):
             self.scene.setSceneRect(self.pixmap_item.boundingRect())
             self.fitInView(self.pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
 
-    def overlay_masks(self, image, alpha=0.5):
+    def overlay_masks(self, image, alpha=0.6, outline_thickness=2):
         """
-        Overlay masks on the given image, highlighting selected masks.
+        Overlay masks on the given image with transparency and ensure overlapping masks remain visible.
         """
         overlay = image.copy()
         mask_files = DataManager().list_masks(self.parent.state_manager.current_image_name)
+
+        mask_layer = np.zeros_like(image, dtype=np.uint8)  # Separate mask layer for masks
 
         for mask_file in mask_files:
             mask = DataManager().load_mask(mask_file)
@@ -100,21 +102,32 @@ class ImageDisplay(QGraphicsView):
             mask_id = parts[1]
             class_name = parts[2].replace('.dat', '')
 
-
-            # Get the color for the current mask
+            # Get the class color
             color = self.parent.state_manager.class_manager.get_color_by_name(class_name)
-            color_bgr = [color.red(), color.green(), color.blue()]  # Convert to RGB
+            color_bgr = (int(color.red()), int(color.green()), int(color.blue()))
 
-            cv2.fillPoly(overlay, [mask.astype(np.int32)], color_bgr)
+            # Create a temporary layer for each mask
+            temp_layer = np.zeros_like(image, dtype=np.uint8)
 
-            # Highlight the selected masks
+            # Fill the mask area
+            cv2.fillPoly(temp_layer, [mask.astype(np.int32)], color_bgr)
+
+            # Blend the mask into the mask layer
+            mask_layer = cv2.addWeighted(mask_layer, 1.0, temp_layer, alpha, 0)  # Adjust blending for more visibility
+
+            # Draw outlines around each mask to ensure boundaries are visible
+            cv2.polylines(mask_layer, [mask.astype(np.int32)], isClosed=True, color=(0, 0, 0), thickness=outline_thickness)
+
+            # Highlight selected masks with a white outline
             if mask_id in self.highlighted_mask_ids:
-                print(f"Highlighting Mask ID: {mask_id}")  # Debugging
-                cv2.polylines(overlay, [mask.astype(np.int32)], isClosed=True, color=(0, 0, 0), thickness=3)
+                cv2.polylines(mask_layer, [mask.astype(np.int32)], isClosed=True, color=(255, 255, 255), thickness=outline_thickness + 2)
 
-        # Blend the original image and the overlay
-        blended_image = cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0)
+        # Blend the final mask layer with the original image
+        blended_image = cv2.addWeighted(image, 1 - alpha, mask_layer, alpha, 0)
+
         return blended_image
+
+
  
     def enable_mask_editor(self, selected_rows):
         """
@@ -202,7 +215,7 @@ class ImageDisplay(QGraphicsView):
         print(f"Selected Mask IDs: {self.highlighted_mask_ids}")  # Debugging
 
         # Redraw the image with the highlighted masks
-        self.display_image(self.parent.state_manager.current_image_path)
+        self.display_image(self.parent.state_manager.current_image_path, preserve_zoom=True)
 
     def delete_selected_masks(self):
         """
@@ -227,7 +240,7 @@ class ImageDisplay(QGraphicsView):
         DataManager().reindex_masks(self.parent.state_manager.current_image_name)
 
         # Refresh the display and results dialog after deletion
-        self.display_image(self.parent.state_manager.current_image_path)
+        self.display_image(self.parent.state_manager.current_image_path, preserve_zoom=True)
         self.parent.show_results()  # Refresh the results dialog
 
     def enable_manual_mask(self):
@@ -285,7 +298,7 @@ class ImageDisplay(QGraphicsView):
         Disable Intelligent Scissors mode and clear temporary data.
         """
         if self.intelligent_scissors:
-            self.intelligent_scissors.clear_polygon()
+            self.intelligent_scissors.clear_temp_items()
             self.intelligent_scissors = None
             print("Intelligent Scissors disabled.")
     
@@ -293,25 +306,12 @@ class ImageDisplay(QGraphicsView):
         """
         Refresh the image overlay when a new mask is added.
         """
-        self.display_image(self.parent.state_manager.current_image_path)  # Redraw the current image
+        self.display_image(self.parent.state_manager.current_image_path,  preserve_zoom=True)  # Redraw the current image
 
     def keyPressEvent(self, event):
         """
         Handle key press events.
         """
-        if event.key() == Qt.Key.Key_Plus:
-            if self.mask_editor and self.mask_editor.is_editing:
-                new_position = (self.x, self.y)
-                print(f"Adding vertex at {new_position}")
-                self.mask_editor.add_vertex(new_position)
-                self.display_image(self.parent.state_manager.current_image_path, preserve_zoom=True) 
-        if event.key() == Qt.Key.Key_Minus:
-            if self.mask_editor and self.mask_editor.is_editing:
-                if self.mask_editor.dragged_vertex_index is not None:
-                    print(f"Deleting vertex at index {self.mask_editor.dragged_vertex_index}")
-                    self.mask_editor.delete_vertex(self.mask_editor.dragged_vertex_index)
-                    self.mask_editor.dragged_vertex_index = None
-                    self.display_image(self.parent.state_manager.current_image_path)  
         if event.key() == Qt.Key.Key_S:
             if self.masker:
                 self.masker.complete_mask()
@@ -347,10 +347,51 @@ class ImageDisplay(QGraphicsView):
         if event.button() == Qt.MouseButton.LeftButton:
             scene_pos = self.mapToScene(event.position().toPoint())
             point = (int(scene_pos.x()), int(scene_pos.y()))
-            if self.mask_editor and self.mask_editor.is_editing:
-                # Find the nearest vertex in the mask being edited
-                self.mask_editor.dragged_vertex_index = self.mask_editor.find_nearest_vertex(point)
-                print(f"Dragging vertex: {self.mask_editor.dragged_vertex_index}")
+            # Get all masks that contain the clicked point
+            selected_mask_ids = self.get_clicked_masks(point)
+
+            # Get all masks that contain the clicked point
+            selected_mask_ids = self.get_clicked_masks(point)
+
+            if selected_mask_ids:
+                print(f"Clicked on masks: {selected_mask_ids}")  # Debugging output
+
+                # Ensure all masks are highlighted
+                for mask_id in selected_mask_ids:
+                    if mask_id not in self.highlighted_mask_ids:
+                        self.highlighted_mask_ids.append(mask_id)  # Add if not already selected
+
+                # Refresh display with the selected masks highlighted
+                self.display_image(self.parent.state_manager.current_image_path, preserve_zoom=True)
+
+                # Ensure results dialog is open before interacting with the table
+                if not hasattr(self.parent, 'results_dialog') or not self.parent.results_dialog.isVisible():
+                    self.parent.show_results()  # Open the table if it’s not already open
+
+                # Set table to allow multiple selections
+                self.parent.results_dialog.table.setSelectionMode(QTableWidget.SelectionMode.MultiSelection)
+
+                selected_rows = []
+                for row in range(self.parent.results_dialog.table.rowCount()):
+                    table_mask_id = self.parent.results_dialog.table.item(row, 1).text()
+                    if table_mask_id in selected_mask_ids:
+                        self.parent.results_dialog.table.selectRow(row)  # Select multiple rows
+                        selected_rows.append({
+                            "image_name": self.parent.results_dialog.table.item(row, 0).text(),
+                            "mask_id": table_mask_id,
+                            "class": self.parent.results_dialog.table.item(row, 3).text(),
+                        })
+
+
+                # Emit selection event to sync mask editor
+                if selected_rows:
+                    self.parent.results_dialog.masks_selected.emit(selected_rows)
+                    #self.parent.image_display.enable_mask_editor(selected_rows) 
+
+            #if self.mask_editor and self.mask_editor.is_editing:
+            #    # Find the nearest vertex in the mask being edited
+            #    self.mask_editor.dragged_vertex_index = self.mask_editor.find_nearest_vertex(point)
+            #    print(f"Dragging vertex: {self.mask_editor.dragged_vertex_index}")
             if self.masker:
                 self.masker.add_point(point)
 
@@ -393,10 +434,10 @@ class ImageDisplay(QGraphicsView):
         scene_pos = self.mapToScene(event.position().toPoint())
         self.x, self.y = int(scene_pos.x()), int(scene_pos.y())
 
-        if self.mask_editor and self.mask_editor.is_editing and self.mask_editor.dragged_vertex_index is not None:
-            new_position = (self.x, self.y)
-            self.mask_editor.update_vertex(self.mask_editor.dragged_vertex_index, new_position)
-            self.display_image(self.parent.state_manager.current_image_path,  preserve_zoom=True)  # Refresh display
+        #if self.mask_editor and self.mask_editor.is_editing and self.mask_editor.dragged_vertex_index is not None:
+        #    new_position = (self.x, self.y)
+        #    self.mask_editor.update_vertex(self.mask_editor.dragged_vertex_index, new_position)
+        #    self.display_image(self.parent.state_manager.current_image_path,  preserve_zoom=True)  # Refresh display
 
         # Update the dynamic path for Intelligent Scissors
         if self.intelligent_scissors and self.intelligent_scissors.seed_points:
@@ -408,7 +449,34 @@ class ImageDisplay(QGraphicsView):
         """
         if event.button() == Qt.MouseButton.MiddleButton:
             self._is_panning = False
-        elif self.mask_editor and self.mask_editor.is_editing and event.button() == Qt.MouseButton.LeftButton:
-            self.mask_editor.dragged_vertex_index = None
-            self.mask_editor.save_current_mask()
-            print("Finished dragging vertex.")
+        #elif self.mask_editor and self.mask_editor.is_editing and event.button() == Qt.MouseButton.LeftButton:
+        #    self.mask_editor.dragged_vertex_index = None
+        #    self.mask_editor.save_current_mask()
+        #    print("Finished dragging vertex.")
+    
+    def get_clicked_masks(self, click_point):
+        """
+        Identify all masks that contain the clicked point.
+
+        Args:
+            click_point (tuple): (x, y) coordinates of the click.
+
+        Returns:
+            list: A list of mask IDs that contain the clicked point.
+        """
+        mask_files = DataManager().list_masks(self.parent.state_manager.current_image_name)
+        clicked_masks = []
+
+        for mask_file in mask_files:
+            mask = DataManager().load_mask(mask_file)
+
+            # Check if the clicked point is inside the mask polygon
+            if cv2.pointPolygonTest(mask.astype(np.int32), click_point, measureDist=False) >= 0:
+                filename = os.path.basename(mask_file)
+                parts = filename.split("||")
+                mask_id = parts[1]  # Extract mask ID
+                clicked_masks.append(mask_id)  # Add the mask ID to the list
+
+        return clicked_masks  # Return all masks that were clicked
+
+

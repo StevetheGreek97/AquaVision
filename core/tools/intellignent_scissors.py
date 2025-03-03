@@ -264,8 +264,13 @@ class IntelligentScissors(QObject):
         self.mask_added.emit(self.parent.parent.state_manager.current_image_name, mask_polygon)
         
         # Clear temporary items
+        self.clear_temp_items()
+
+
+    def clear_temp_items(self):
         self.clear_polygon()
         self.remove_restrictive_threshold()
+
  
 
 

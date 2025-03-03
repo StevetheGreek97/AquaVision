@@ -46,7 +46,7 @@ class InferenceThread(QThread):
 
                 # Perform inference
                 image = Image.open(image_path).convert("RGB")
-                results = model.predict(image, save_txt=False, save_crop=False, verbose = False)
+                results = model.predict(image, save_txt=False, save_crop=False, verbose = False, conf= 0.9, iou = 0.5)
                 segmentation_results = results[0].masks.xy if results[0].masks else []
                 np_image = np.array(image)
                 # Extract class names
