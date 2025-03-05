@@ -6,6 +6,7 @@ from core.data import DataManager
 from PyQt6.QtCore import Qt
 import os
 import re
+import yaml 
 
 class YOLOAnnotationExporter:
     """
@@ -15,9 +16,10 @@ class YOLOAnnotationExporter:
     def __init__(self, parent):
         self.parent = parent
 
+
     def export_all_annotations(self):
         """
-        Export YOLO annotations for all images in the dataset.
+        Export YOLO annotations for all images in the dataset and generate a data.yaml file.
         """
         if not self.parent.state_manager.image_paths:
             print("No images loaded to export annotations.")
@@ -27,6 +29,10 @@ class YOLOAnnotationExporter:
         if not export_dir:
             print("No folder selected for export.")
             return
+
+        # Create 'annotations' subfolder inside the selected export directory
+        annotations_dir = os.path.join(export_dir, "annotations")
+        os.makedirs(annotations_dir, exist_ok=True)
 
         # Progress Dialog
         total_images = len(self.parent.state_manager.image_paths)
@@ -80,8 +86,8 @@ class YOLOAnnotationExporter:
                 # Generate YOLO annotations
                 yolo_annotations = self._process_masks(masks, class_ids, img_width, img_height)
 
-                # Write annotations to file
-                write_annotations_to_file(image_name, yolo_annotations, export_dir)
+                # Write annotations to file inside the "annotations" folder
+                write_annotations_to_file(image_name, yolo_annotations, annotations_dir)
 
             except Exception as e:
                 print(f"Error processing {image_path}: {e}")
@@ -89,8 +95,32 @@ class YOLOAnnotationExporter:
             # Update progress
             progress_dialog.setValue(index + 1)
 
+        # Generate the data.yaml file
+        self.generate_data_yaml(annotations_dir)
+
         progress_dialog.close()
-        print(f"All annotations exported to: {export_dir}")
+        print(f"All annotations exported to: {annotations_dir}")
+
+
+    def generate_data_yaml(self, annotations_dir):
+        """
+        Generate the data.yaml file with class ID and name mappings.
+        """
+        class_manager = self.parent.state_manager.class_manager
+        class_names = class_manager.get_all_class_names()
+
+        # Create a dictionary for YAML format
+        data_yaml = {
+            "names": {class_manager.get_idx_by_name(name): name for name in class_names}
+        }
+
+        # Save as a YAML file
+        yaml_path = os.path.join(annotations_dir, "data.yaml")
+        with open(yaml_path, "w") as yaml_file:
+            yaml.dump(data_yaml, yaml_file, default_flow_style=False)
+
+        print(f"data.yaml saved at: {yaml_path}")
+
 
     @staticmethod
     def _process_masks(masks, class_ids, img_width, img_height, simplify_tolerance=0.01):
