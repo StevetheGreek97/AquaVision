@@ -2,7 +2,7 @@ import numpy as np
 from PyQt6.QtGui import QPen, QColor
 from PyQt6.QtWidgets import  QGraphicsEllipseItem, QGraphicsLineItem
 from PyQt6.QtCore import pyqtSignal, QObject
-from core.data import DataManager
+
 class ManualMask(QObject):
     """
     A class for manually creating masks by drawing polygon shapes on the displayed image.
@@ -93,7 +93,7 @@ class ManualMask(QObject):
             dtype=np.float32
         )
         class_name, selected_color = self.parent.parent.sidebar.get_selected_class_color()
-        DataManager().save_mask(mask_polygon, self.parent.parent.state_manager.current_image_name, class_name)
+        self.parent.parent.state_manager.mask_manager.save_mask(mask_polygon, self.parent.parent.state_manager.current_image_name, class_name)
         # Emit the signal
         self.mask_added.emit(self.parent.parent.state_manager.current_image_name, mask_polygon)
         # Clear temporary items

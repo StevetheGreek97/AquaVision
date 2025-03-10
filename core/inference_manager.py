@@ -3,7 +3,6 @@ from core.inference_thread import InferenceThread
 from PyQt6.QtCore import QObject
 from PyQt6.QtGui import QColor
 import numpy as np
-from core.data import DataManager
 import os
 import random
 class InferenceManager(QObject):
@@ -64,8 +63,8 @@ class InferenceManager(QObject):
 
             
             if  mask is not None and  mask.size > 0: # Checking if the np.ndarray is empty
-                # Save the mask using DataManager
-                DataManager().save_mask(mask, image_name, class_name)
+                
+                 self.parent.state_manager.mask_manager.save_mask(mask, image_name, class_name)
 
             # Check if the class already exists in the StateManager
             if class_name not in self.parent.state_manager.class_manager.get_all_class_names():
@@ -74,12 +73,9 @@ class InferenceManager(QObject):
                 random_color = QColor(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
                 
                 # Add the new class with its color
-                class_idx = len(self.parent.state_manager.class_manager.classes)
-                self.parent.state_manager.class_manager.add_class(class_idx, class_name, random_color)
+        
+                self.parent.state_manager.class_manager.add_class(class_name, random_color)
                 
-                # Update the Sidebar dropdown
-                self.parent.sidebar.class_dropdown.addItem(f"{class_name} ({random_color.name()})", userData=random_color)
-
                 print(f"Added new class '{class_name}' with color {random_color.name()}")
 
         # Update the progress dialog

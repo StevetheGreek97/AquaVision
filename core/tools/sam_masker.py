@@ -1,5 +1,5 @@
 import numpy as np
-from core.data import DataManager
+from core.database import DatabaseManager
 from PyQt6.QtGui import QPen, QColor, QPolygonF
 from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsPolygonItem
 from PyQt6.QtCore import pyqtSignal, QObject, QPointF
@@ -166,7 +166,7 @@ class SamMasker(QObject):
             mask (numpy.ndarray): The mask to save.
             file_path (str): Path to save the mask.
         """
-        DataManager().save_mask(self.mask, self.parent.parent.state_manager.current_image_name)
+        DatabaseManager().save_mask(self.mask, self.parent.parent.state_manager.current_image_name)
         self.mask_added.emit(self.parent.parent.state_manager.current_image_name, self.mask)
         self.clear_temp_items()
         print(f"Mask saved")

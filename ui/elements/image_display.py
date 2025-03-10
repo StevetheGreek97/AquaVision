@@ -7,9 +7,9 @@ import numpy as np
 from services.logger import logger, log_memory_usage
 from core.tools.manual_mask import ManualMask
 from core.tools.sam2_masker import SamMasker2
-from core.tools.MaskEditor import MaskEditor
+
 from core.tools.intellignent_scissors import IntelligentScissors
-from core.data import DataManager
+
 class ImageDisplay(QGraphicsView):
     """
     A QGraphicsView for displaying images with zoom and pan functionality, including zoom limits.
@@ -88,22 +88,22 @@ class ImageDisplay(QGraphicsView):
 
     def overlay_masks(self, image, alpha=0.6, outline_thickness=2):
         """
-        Overlay masks on the given image with transparency and ensure overlapping masks remain visible.
+        Overlay masks on the given image with transparency and ensure all masks remain visible.
         """
         overlay = image.copy()
-        mask_files = DataManager().list_masks(self.parent.state_manager.current_image_name)
+        masks = self.parent.state_manager.mask_manager.load_masks(self.parent.state_manager.current_image_name)
 
-        mask_layer = np.zeros_like(image, dtype=np.uint8)  # Separate mask layer for masks
+        mask_layer = np.zeros_like(image, dtype=np.uint8)  
 
-        for mask_file in mask_files:
-            mask = DataManager().load_mask(mask_file)
-            filename = os.path.basename(mask_file)
-            parts = filename.split("||")
-            mask_id = parts[1]
-            class_name = parts[2].replace('.dat', '')
+        for mask_id, mask, class_name in masks:
+            print(f"🔍 Overlaying Mask - ID: {mask_id}, Class: {class_name}, Shape: {mask.shape}")
+
+            if mask.shape[0] < 3:  
+                print(f"❌ Skipping mask {mask_id} - Invalid shape {mask.shape}")
+                continue  
 
             # Get the class color
-            color = self.parent.state_manager.class_manager.get_color_by_name(class_name)
+            color = self.parent.state_manager.class_manager.get_class_color(class_name)
             color_bgr = (int(color.red()), int(color.green()), int(color.blue()))
 
             # Create a temporary layer for each mask
@@ -113,13 +113,14 @@ class ImageDisplay(QGraphicsView):
             cv2.fillPoly(temp_layer, [mask.astype(np.int32)], color_bgr)
 
             # Blend the mask into the mask layer
-            mask_layer = cv2.addWeighted(mask_layer, 1.0, temp_layer, alpha, 0)  # Adjust blending for more visibility
+            mask_layer = cv2.addWeighted(mask_layer, 1.0, temp_layer, alpha, 0)  
 
-            # Draw outlines around each mask to ensure boundaries are visible
+            # Draw outlines around each mask
             cv2.polylines(mask_layer, [mask.astype(np.int32)], isClosed=True, color=(0, 0, 0), thickness=outline_thickness)
 
-            # Highlight selected masks with a white outline
-            if mask_id in self.highlighted_mask_ids:
+            # 🔹 Ensure Highlighted Masks Have White Borders
+            if str(mask_id) in self.highlighted_mask_ids:
+                print(f"🌟 Highlighting Mask {mask_id}")
                 cv2.polylines(mask_layer, [mask.astype(np.int32)], isClosed=True, color=(255, 255, 255), thickness=outline_thickness + 2)
 
         # Blend the final mask layer with the original image
@@ -127,47 +128,7 @@ class ImageDisplay(QGraphicsView):
 
         return blended_image
 
-
  
-    def enable_mask_editor(self, selected_rows):
-        """
-        Enable editing for masks selected from the table.
-        """
-        if not selected_rows:
-            print("No masks selected for editing.")
-            return
-
-        # Initialize MaskEditor only when needed
-        
-
-        for row in selected_rows:
-            mask_id = row["mask_id"]
-            image_name = row['image_name']
-            class_name = row['class']
-            
-            mask_file = f'{image_name}||{mask_id}||{class_name}.dat'
-
-    
-            if not mask_file:
-                print(f"Mask {mask_id} not found.")
-                continue
-            mask = DataManager().load_mask(f'masks/{mask_file}')
-            self.mask_editor = MaskEditor(mask, mask_id, image_name, class_name)
-            
-
-            self.mask_editor.start_editing()  # Start editing with file reference
-            self.display_image(self.parent.state_manager.current_image_path)  # Refresh the display
-
-    def disable_mask_editor(self):
-        """
-        Disable mask editing and clear the current editing mask.
-        """
-        if self.mask_editor:
-            self.mask_editor.stop_editing()
-            self.mask_editor = None
-            print("Mask editing disabled.")
-            self.display_image(self.parent.state_manager.current_image_path)  # Refresh the display
-
     def overlay_editing_masks(self, image):
         """
         Overlay the currently editing mask on the given image.
@@ -210,36 +171,38 @@ class ImageDisplay(QGraphicsView):
         """
         Set the highlighted masks based on the selected rows emitted from MaskResultsDialog.
         """
-        # Extract only the Mask IDs from the selected rows
-        self.highlighted_mask_ids = [row["mask_id"] for row in selected_rows]
-        print(f"Selected Mask IDs: {self.highlighted_mask_ids}")  # Debugging
+        self.highlighted_mask_ids = [str(row["mask_id"]) for row in selected_rows]  # Ensure all selected IDs are stored as strings
+
+        print(f"🔍 Selected Mask IDs for Highlighting: {self.highlighted_mask_ids}")  # Debugging
 
         # Redraw the image with the highlighted masks
         self.display_image(self.parent.state_manager.current_image_path, preserve_zoom=True)
 
     def delete_selected_masks(self):
         """
-        Delete the masks currently highlighted and reindex remaining masks.
+        Delete the selected masks from the database and refresh the display.
         """
         if not self.highlighted_mask_ids:
             print("No masks selected for deletion.")
             return
 
-        mask_files = DataManager().list_masks(self.parent.state_manager.current_image_name)
-        for mask_file in mask_files:
-            filename = os.path.basename(mask_file)
-            parts = filename.split("||")
-            mask_id = parts[1]
+        image_name = self.parent.state_manager.current_image_name
+        mask_ids_to_delete = [int(mask_id) for mask_id in self.highlighted_mask_ids]  # Convert to int for DB query
 
-            if mask_id in self.highlighted_mask_ids:
-                print(f"Deleting Mask ID: {mask_id}")  # Debugging
-                os.remove(mask_file)  # Remove the mask file
-                self.highlighted_mask_ids.remove(mask_id)  # Remove from highlighted list
+        if not mask_ids_to_delete:
+            print("No valid mask IDs found for deletion.")
+            return
 
-        # Reindex the remaining masks
-        DataManager().reindex_masks(self.parent.state_manager.current_image_name)
+        #  Delete masks from the database
+        self.parent.state_manager.mask_manager.delete_mask(image_name, mask_ids_to_delete)
 
-        # Refresh the display and results dialog after deletion
+        #  Clear highlighted masks after deletion
+        self.highlighted_mask_ids = []
+
+        # Reindex masks after deletion
+        self.parent.state_manager.mask_manager.reindex_masks()
+
+        # Refresh the display and results table
         self.display_image(self.parent.state_manager.current_image_path, preserve_zoom=True)
         self.parent.show_results()  # Refresh the results dialog
 
@@ -453,7 +416,6 @@ class ImageDisplay(QGraphicsView):
         #    self.mask_editor.dragged_vertex_index = None
         #    self.mask_editor.save_current_mask()
         #    print("Finished dragging vertex.")
-    
     def get_clicked_masks(self, click_point):
         """
         Identify all masks that contain the clicked point.
@@ -464,19 +426,13 @@ class ImageDisplay(QGraphicsView):
         Returns:
             list: A list of mask IDs that contain the clicked point.
         """
-        mask_files = DataManager().list_masks(self.parent.state_manager.current_image_name)
+        masks = self.parent.state_manager.mask_manager.load_masks(self.parent.state_manager.current_image_name)
         clicked_masks = []
 
-        for mask_file in mask_files:
-            mask = DataManager().load_mask(mask_file)
-
+        for mask_id, mask, class_name in masks:
             # Check if the clicked point is inside the mask polygon
             if cv2.pointPolygonTest(mask.astype(np.int32), click_point, measureDist=False) >= 0:
-                filename = os.path.basename(mask_file)
-                parts = filename.split("||")
-                mask_id = parts[1]  # Extract mask ID
-                clicked_masks.append(mask_id)  # Add the mask ID to the list
+                clicked_masks.append(str(mask_id))  # Convert ID to string for consistency
 
-        return clicked_masks  # Return all masks that were clicked
-
+        return clicked_masks
 

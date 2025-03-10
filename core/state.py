@@ -1,8 +1,9 @@
 import os
-from core.data import DataManager
+from core.database.class_manager import ClassDatabaseManager
+from core.database.connection import DatabaseConnection
+from core.database.mask_manager import MaskDatabaseManager
 from PyQt6.QtGui import QColor
 from PyQt6.QtCore import QObject, pyqtSignal
-from core.class_manager import ClassIndexManager
 class StateManager(QObject):
     image_changed = pyqtSignal(str)
     """
@@ -11,20 +12,19 @@ class StateManager(QObject):
 
     def __init__(self):
         super().__init__()  # Initialize the QObject base class
+
+        # Shared Database Connection
+        self.db = DatabaseConnection()
+
+        # db  Managers
+        self.class_manager = ClassDatabaseManager(self.db)
+        self.mask_manager = MaskDatabaseManager(self.db)
+
         # Initialize state variables
         self.image_index = -1  # Index of the currently displayed image (-1 means no image loaded)
-        self.class_manager = ClassIndexManager()
         self.image_paths = []
         self._current_image = None  # NumPy array of the current image
    
-    def get_mask_color(self, mask_name):
-        """
-        Get the color for a specific mask ID.
-        """
-        return self.class_manager.mask_colors.get(mask_name, QColor(255, 255, 255))  # Default to white if not set
-    def get_class_id(self, mask_name):
-        return self.class_manager.class_indices.get(mask_name)
-
     @property
     def current_image(self):
         """
@@ -97,7 +97,10 @@ class StateManager(QObject):
         Returns:
             list: List of masks for the current image, or an empty list if no masks are available.
         """
-        return DataManager().get_masks(self.current_image_name)
+        if not self.current_image_name:
+            return []
+
+        return self.mask_manager.load_masks(self.current_image_name)
 
     @property
     def current_colors(self):

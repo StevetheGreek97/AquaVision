@@ -1,5 +1,4 @@
 import numpy as np
-from core.data import DataManager
 from PyQt6.QtGui import QPen, QColor, QPolygonF
 from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsPolygonItem
 from PyQt6.QtCore import pyqtSignal, QObject, QPointF
@@ -135,7 +134,7 @@ class SamMasker2(QObject):
         # Display the polygon
         self.display_polygon(polygon)
 
-        self.mask = np.array(polygon)
+        self.mask = np.array(polygon, dtype=np.float32)
     def clear_temp_items(self):
         """
         Clear temporary points and lines.
@@ -159,22 +158,30 @@ class SamMasker2(QObject):
         self.mask = None
         print("Temporary items cleared.")
 
-
-
-
     def complete_mask(self):
         """
-        Save the mask to a file.
-
-        Args:
-            mask (numpy.ndarray): The mask to save.
-            file_path (str): Path to save the mask.
+        Save the generated mask to the database.
         """
-        if self.mask is not None:
-            class_name, selected_color = self.parent.parent.sidebar.get_selected_class_color()
-            DataManager().save_mask(self.mask, self.parent.parent.state_manager.current_image_name, class_name)
-            self.mask_added.emit(self.parent.parent.state_manager.current_image_name, self.mask)
-            self.clear_temp_items()
-            print(f"Mask saved")
-        else:
-            print('There is no mask to be saved. Hit -e- to execute')
+        if self.mask is None or self.mask.shape[0] == 0:
+            print("❌ No mask found! Hit -e- to execute or check contour extraction.")
+            return
+
+        if self.mask.ndim != 2 or self.mask.shape[1] != 2:
+            print(f"❌ Error: Invalid mask shape {self.mask.shape} (Expected Nx2).")
+            return
+
+        class_name, selected_color = self.parent.parent.sidebar.get_selected_class_color()
+
+        # ✅ Debug: Print before saving
+        print(f"🔍 Saving Mask - Image: {self.parent.parent.state_manager.current_image_name}, "
+            f"Class: {class_name}, Shape: {self.mask.shape}")
+
+        self.parent.parent.state_manager.mask_manager.save_mask(self.mask, 
+            self.parent.parent.state_manager.current_image_name, class_name)
+
+        self.mask_added.emit(self.parent.parent.state_manager.current_image_name, self.mask)
+
+        print(f"✅ Mask successfully saved: {self.mask.shape}")
+        self.clear_temp_items()
+
+

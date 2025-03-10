@@ -6,10 +6,10 @@ from ui.dialogs.inference_dialog import InferenceDialog
 from ui.dialogs.table import MaskResultsDialog
 import os
 from PyQt6.QtCore import Qt, QEvent
-from core.state import StateManager  # Import the StateManager
+from core.state import StateManager  
 from core.inference_manager import  InferenceManager
 from PyQt6.QtCore import pyqtSignal
-from core.export_manager import YOLOAnnotationExporter
+from core.exporters.yolo_exporter import YOLOExporter
 from services.file_handlers import loader
 from services.logger import logger, log_memory_usage
 
@@ -146,19 +146,6 @@ class MainApp(QMainWindow):
                     self.current_model_path, self.state_manager.image_paths
                 )
 
-   # def keyPressEvent(self, event):
-   #     """
-   #     Handle key press events for navigation and mask deletion.
-   #     """
-#
- #       if event.key() == Qt.Key.Key_Right:  # Next image
-  #          self.next_image()
-   #     elif event.key() == Qt.Key.Key_Left:  # Previous image
-    #       self.previous_image()
-
-            
-
-        #event.accept()
     def closeEvent(self, event):
         if hasattr(self, 'export_thread') and self.export_thread.isRunning():
             print("Stopping export thread...")
@@ -191,49 +178,10 @@ class MainApp(QMainWindow):
             self.results_dialog.show()
 
     def _export_results(self):
-        exporter = YOLOAnnotationExporter(self)
+        exporter = YOLOExporter(self)
         exporter.export_all_annotations()
 
-    def add_class(self):
-        """
-        Add a new class with a selected color to the dropdown.
-        """
-        # Prompt the user to enter a class name
-        class_name, ok = QInputDialog.getText(self, "Add Class", "Enter class name:")
-        if not ok or not class_name.strip():
-            return
-
-        # Open a color picker to select a color
-        color = QColorDialog.getColor()
-        if not color.isValid():
-            return
-
-        # Add the new class and its color to the dropdown
-        idx = self.sidebar.class_dropdown.count()
-        self.sidebar.class_dropdown.addItem(f"{class_name} ({color.name()})", userData=color)
-        
-        # Update the state manager with the new class and color
-        self.state_manager.class_manager.add_class(idx, class_name, color)
-        #for key, pair in self.state_manager.class_manager.classes.items():
-        #   print(f"{key}: value1 = {pair.name}")
-        #print()
-
-    def remove_selected_class(self):
-        """
-        Remove the currently selected class from the dropdown.
-        """
-        current_index = self.sidebar.class_dropdown.currentIndex()
-        print(current_index)
-        
-        if current_index >= 0:
-            self.state_manager.class_manager.remove_class(current_index)            
-            self.sidebar.class_dropdown.removeItem(current_index)
-
-            
-
-        #for key, pair in self.state_manager.class_manager.classes.items():
-        #    print(f"{key}: value1 = {pair.name}")
-        #print()
+  
 
 
     def eventFilter(self, source, event):
@@ -261,29 +209,3 @@ class MainApp(QMainWindow):
 
 
 
-
-
-
-
- #   def print_current_state(self):
- #       """
- #       Print the current state of the currently displayed image, including its details and associated masks.
- #       """
- #       current_image_path = self.state_manager.current_image_path
- #       current_image = self.state_manager.current_image
-#
-#        # Print current image details
-#        if current_image is not None:
-#            print(f"Currently displayed image path: {current_image_path}")
-#            print(f"Current image shape: {current_image.shape}")
-#        else:
-#            print("No image currently displayed.")
-
-#        # Print details about the masks for the current image
-#        image_mask = self.state_manager.image_masks.get(current_image_path)
-#        if image_mask:
-#            print(f"Number of masks: {len(image_mask.masks)}")
-#            print(f"Mask shapes: {[mask.shape for mask in image_mask.masks]}")
-
-#        else:
-#            print("No masks found for the currently displayed image.")

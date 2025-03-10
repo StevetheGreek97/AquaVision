@@ -5,7 +5,7 @@ from PyQt6.QtCore import pyqtSignal,QObject, QPointF, QRectF, QTimer
 from PyQt6.QtGui import QPolygonF, QPen, QColor
 from PyQt6.QtWidgets import QGraphicsPolygonItem, QGraphicsEllipseItem
 from shapely.geometry import Polygon
-from core.data import DataManager
+
 
 class IntelligentScissors(QObject):
     """
@@ -259,7 +259,7 @@ class IntelligentScissors(QObject):
         # Create the mask polygon from the polygon points
         mask_polygon = np.array(self.polygon_points, dtype=np.float32)
         class_name, selected_color = self.parent.parent.sidebar.get_selected_class_color()
-        DataManager().save_mask(mask_polygon, self.parent.parent.state_manager.current_image_name, class_name)
+        self.parent.parent.state_manager.mask_manager.save_mask(mask_polygon, self.parent.parent.state_manager.current_image_name, class_name)
         # Emit the signal
         self.mask_added.emit(self.parent.parent.state_manager.current_image_name, mask_polygon)
         
