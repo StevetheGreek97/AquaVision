@@ -10,6 +10,7 @@ from core.state import StateManager
 from core.inference_manager import  InferenceManager
 from PyQt6.QtCore import pyqtSignal
 from core.exporters.yolo_exporter import YOLOExporter
+from core.managers.tool_manager import ToolManager
 from services.file_handlers import loader
 from services.logger import logger, log_memory_usage
 
@@ -35,12 +36,15 @@ class MainApp(QMainWindow):
 
         # Initialize InferenceManager
         self.inference_manager = None
+        self.tool_manager = ToolManager(self)
 
         # Create widgets
         self.image_display = ImageDisplay(self)
         self.sidebar = Sidebar(self)
         self.menu_bar = MenuBar(self)
         self.setMenuBar(self.menu_bar)
+
+        
 
         # Layout
         central_widget = QWidget()
@@ -76,12 +80,8 @@ class MainApp(QMainWindow):
         """
         next_image_path = self.state_manager.next_image()
         if next_image_path:
-            if self.image_display.masker:
-                self.image_display.masker.clear_temp_items()
-            if self.image_display.sam2_masker:
-                self.image_display.sam2_masker.clear_temp_items()
-            if self.image_display.intelligent_scissors:
-                self.image_display.intelligent_scissors.clear_temp_items()
+            if self.tool_manager.current_tool:
+                self.tool_manager.current_tool.clear_temp_items()
             self.image_display.display_image(next_image_path)
 
 
@@ -101,12 +101,8 @@ class MainApp(QMainWindow):
         """
         previous_image_path = self.state_manager.previous_image()
         if previous_image_path:
-            if self.image_display.masker:
-                self.image_display.masker.clear_temp_items()
-            if self.image_display.sam2_masker:
-                self.image_display.sam2_masker.clear_temp_items()
-            if self.image_display.intelligent_scissors:
-                self.image_display.intelligent_scissors.clear_temp_items()
+            if self.tool_manager.current_tool:
+                self.tool_manager.current_tool.clear_temp_items()
             self.image_display.display_image(previous_image_path)
 
             print(f"Current image: {self.state_manager.current_image_index + 1}/{len(self.state_manager.image_paths)}")

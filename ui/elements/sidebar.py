@@ -78,31 +78,32 @@ class Sidebar(QWidget):
         self.intelligent_scissors.clicked.connect(self.toggle_intelligent_scissors)
         self.layout.addWidget(self.intelligent_scissors)
 
-    def toggle_manual_mask(self):
-        """
-        Toggle mode in the ImageDisplay.
-        """
-        if self.manual_mask.isChecked():
-            self.parent.image_display.enable_manual_mask()
-        else:
-            self.parent.image_display.disable_manual_mask()
-    def toggle_intelligent_scissors(self):
-        """
-        Toggle Intelligent Scissors mode in the ImageDisplay.
-        """
-        if self.intelligent_scissors.isChecked():
-            self.parent.image_display.enable_intelligent_scissors()
-        else:
-            self.parent.image_display.disable_intelligent_scissors()
-    
     def toggle_sam2(self):
         """
-        Toggle mode in the ImageDisplay.
+        Toggle SAM2 mode using ToolManager.
         """
         if self.sam2.isChecked():
-            self.parent.image_display.enable_sam2()
+            self.parent.tool_manager.enable_tool("sam2")  # ✅ Use ToolManager
         else:
-            self.parent.image_display.disable_sam2()
+            self.parent.tool_manager.disable_tools()
+
+    def toggle_intelligent_scissors(self):
+        """
+        Toggle Intelligent Scissors mode using ToolManager.
+        """
+        if self.intelligent_scissors.isChecked():
+            self.parent.tool_manager.enable_tool("intelligent_scissors")  # ✅ Use ToolManager
+        else:
+            self.parent.tool_manager.disable_tools()
+
+    def toggle_manual_mask(self):
+        """
+        Toggle Manual Mask mode using ToolManager.
+        """
+        if self.manual_mask.isChecked():
+            self.parent.tool_manager.enable_tool("manual_mask")  # ✅ Use ToolManager
+        else:
+            self.parent.tool_manager.disable_tools()
 
     @staticmethod
     def _create_button(label, callback):

@@ -46,11 +46,6 @@ class ImageDisplay(QGraphicsView):
         self._zoom_min = 1.0  # Minimum zoom level (100% of original size)
         self._zoom_max = 10.0  # Maximum zoom level (400% of original size)
 
-        # Tools
-        self.masker = None
-        self.sam2_masker = None
-        self.intelligent_scissors = None
-        self.mask_editor = None
         
 
     def display_image(self, image_path, preserve_zoom=False):
@@ -206,65 +201,6 @@ class ImageDisplay(QGraphicsView):
         self.display_image(self.parent.state_manager.current_image_path, preserve_zoom=True)
         self.parent.show_results()  # Refresh the results dialog
 
-    def enable_manual_mask(self):
-        """
-        Enable manual mask mode.
-        """
-        self.disable_intelligent_scissors()
-        self.disable_sam2()
-        self.masker = ManualMask(self)
-        self.masker.mask_added.connect(self.refresh_overlay)  # Connect signal to refresh display
-
-    def disable_manual_mask(self):
-        """
-        Disable manual mask mode and clear temporary lines and points.
-        """
-        if self.masker:
-            self.masker.clear_temp_items()
-            self.masker = None
-
-    def enable_sam2(self):
-        """
-        Enable manual mask mode.
-        """
-        self.disable_intelligent_scissors()
-        self.disable_manual_mask()
-        self.sam2_masker = SamMasker2(self)
-
-        self.sam2_masker.mask_added.connect(self.refresh_overlay)  # Connect signal to refresh display
-
-    def disable_sam2(self):
-        """
-        Disable manual mask mode and clear temporary lines and points.
-        """
-        if self.sam2_masker:
-            self.sam2_masker.clear_temp_items()
-            self.sam2_masker = None
-
-    def enable_intelligent_scissors(self):
-        """
-        Enable Intelligent Scissors mode.
-        """
-        self.disable_intelligent_scissors()
-        self.disable_sam2()
-        if self.parent.state_manager.current_image is None:
-            print("No image loaded. Please load an image first.")
-            return
-
-        self.intelligent_scissors = IntelligentScissors(self)
-        self.intelligent_scissors.set_image(self.parent.state_manager.current_image)
-        self.intelligent_scissors.mask_added.connect(self.refresh_overlay)
-        print("Intelligent Scissors enabled hrerere.")
-
-    def disable_intelligent_scissors(self):
-        """
-        Disable Intelligent Scissors mode and clear temporary data.
-        """
-        if self.intelligent_scissors:
-            self.intelligent_scissors.clear_temp_items()
-            self.intelligent_scissors = None
-            print("Intelligent Scissors disabled.")
-    
     def refresh_overlay(self, image_name, mask):
         """
         Refresh the image overlay when a new mask is added.
@@ -276,15 +212,12 @@ class ImageDisplay(QGraphicsView):
         Handle key press events.
         """
         if event.key() == Qt.Key.Key_S:
-            if self.masker:
-                self.masker.complete_mask()
-            if self.sam2_masker:
-                self.sam2_masker.complete_mask()
-            if self.intelligent_scissors:
-                self.intelligent_scissors.complete_mask()
+            if self.parent.tool_manager.current_tool:
+                self.parent.tool_manager.current_tool.complete_mask()
+
         if event.key() == Qt.Key.Key_E:
-            if self.sam2_masker:
-                a = self.sam2_masker.generate_mask(self.parent.state_manager.current_image)
+            if isinstance(self.parent.tool_manager.current_tool, SamMasker2):
+                a = self.parent.tool_manager.current_tool.generate_mask(self.parent.state_manager.current_image)
 
     def wheelEvent(self, event):
         """
@@ -349,31 +282,26 @@ class ImageDisplay(QGraphicsView):
                 # Emit selection event to sync mask editor
                 if selected_rows:
                     self.parent.results_dialog.masks_selected.emit(selected_rows)
-                    #self.parent.image_display.enable_mask_editor(selected_rows) 
 
-            #if self.mask_editor and self.mask_editor.is_editing:
-            #    # Find the nearest vertex in the mask being edited
-            #    self.mask_editor.dragged_vertex_index = self.mask_editor.find_nearest_vertex(point)
-            #    print(f"Dragging vertex: {self.mask_editor.dragged_vertex_index}")
-            if self.masker:
-                self.masker.add_point(point)
+            if isinstance(self.parent.tool_manager.current_tool, ManualMask):
+                self.parent.tool_manager.current_tool.add_point(point)
 
-            if self.sam2_masker:
-                self.sam2_masker.add_point(point, 1)
+            if isinstance(self.parent.tool_manager.current_tool, SamMasker2):
+                self.parent.tool_manager.current_tool.add_point(point, 1)
 
-            if self.intelligent_scissors:
-                self.intelligent_scissors.add_seed_point(point)
+            if isinstance(self.parent.tool_manager.current_tool, IntelligentScissors):
+                self.parent.tool_manager.current_tool.add_seed_point(point)
 
         elif event.button() == Qt.MouseButton.RightButton:
-            if self.masker:
-                self.masker.pop_last_point()
+            if isinstance(self.parent.tool_manager.current_tool, ManualMask):
+                self.parent.tool_manager.current_tool.pop_last_point()
 
-            if self.sam2_masker:
+            if isinstance(self.parent.tool_manager.current_tool, SamMasker2):
                 scene_pos = self.mapToScene(event.position().toPoint())
                 point = (int(scene_pos.x()), int(scene_pos.y()))
 
 
-                self.sam2_masker.add_point(point, 0)
+                self.parent.tool_manager.current_tool.add_point(point, 0)
 
         elif event.button() == Qt.MouseButton.MiddleButton:
             # Start panning
@@ -396,15 +324,10 @@ class ImageDisplay(QGraphicsView):
 
         scene_pos = self.mapToScene(event.position().toPoint())
         self.x, self.y = int(scene_pos.x()), int(scene_pos.y())
-
-        #if self.mask_editor and self.mask_editor.is_editing and self.mask_editor.dragged_vertex_index is not None:
-        #    new_position = (self.x, self.y)
-        #    self.mask_editor.update_vertex(self.mask_editor.dragged_vertex_index, new_position)
-        #    self.display_image(self.parent.state_manager.current_image_path,  preserve_zoom=True)  # Refresh display
-
         # Update the dynamic path for Intelligent Scissors
-        if self.intelligent_scissors and self.intelligent_scissors.seed_points:
-            self.intelligent_scissors.update_dynamic_path((self.x, self.y))
+        if isinstance(self.parent.tool_manager.current_tool, IntelligentScissors):
+            if self.parent.tool_manager.current_tool.seed_points:
+                self.parent.tool_manager.current_tool.update_dynamic_path((self.x, self.y))
     
     def mouseReleaseEvent(self, event):
         """
@@ -412,10 +335,7 @@ class ImageDisplay(QGraphicsView):
         """
         if event.button() == Qt.MouseButton.MiddleButton:
             self._is_panning = False
-        #elif self.mask_editor and self.mask_editor.is_editing and event.button() == Qt.MouseButton.LeftButton:
-        #    self.mask_editor.dragged_vertex_index = None
-        #    self.mask_editor.save_current_mask()
-        #    print("Finished dragging vertex.")
+
     def get_clicked_masks(self, click_point):
         """
         Identify all masks that contain the clicked point.

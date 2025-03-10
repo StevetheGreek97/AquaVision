@@ -38,8 +38,6 @@ class MaskResultsDialog(QDialog):
 
         # Connect image_changed signal to refresh_table
         self.parent.state_manager.image_changed.connect(self.refresh_table)
-        if self.parent.image_display.masker:
-            self.parent.image_display.masker.mask_added.connect(self.refresh_table)
 
         self.table.itemSelectionChanged.connect(self.on_selection_changed)
 
