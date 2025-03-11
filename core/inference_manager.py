@@ -6,6 +6,7 @@ import numpy as np
 import os
 import random
 class InferenceManager(QObject):
+
     def __init__(self, parent, mode, display_text):
         super().__init__()
         self.parent = parent
@@ -77,6 +78,8 @@ class InferenceManager(QObject):
                 self.parent.state_manager.class_manager.add_class(class_name, random_color)
                 
                 print(f"Added new class '{class_name}' with color {random_color.name()}")
+                
+                self.parent.sidebar.populate_class_dropdown()
 
         # Update the progress dialog
         current_value = self.progress_manager.progress_dialog.value() + 1

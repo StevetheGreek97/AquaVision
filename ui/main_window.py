@@ -179,7 +179,6 @@ class MainApp(QMainWindow):
 
   
 
-
     def eventFilter(self, source, event):
         """
         Handle global key events for navigation and deletion.

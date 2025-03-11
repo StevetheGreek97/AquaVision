@@ -41,7 +41,7 @@ class BaseExporter:
         class_names = class_manager.get_all_class_names()
 
         data_yaml = {
-            "names": {class_manager.get_idx_by_name(name): name for name in class_names}
+            "names": {class_manager.get_idx_by_name(name) -1 : name for name in class_names} # -1 to start from 0
         }
 
         yaml_path = os.path.join(self.annotations_dir, "data.yaml")

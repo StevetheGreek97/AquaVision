@@ -80,6 +80,7 @@ class ClassDatabaseManager:
         """
         result = self.db.fetch_one("SELECT id FROM classes WHERE class_name = ?", (class_name,))
         return result[0] if result else -1  #  Return -1 instead of None for safety
+    
     def reindex_classes(self):
         """
         Reindex mask IDs to remove gaps after deletions.

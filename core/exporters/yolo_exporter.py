@@ -100,7 +100,7 @@ class YOLOExporter(BaseExporter):
         Convert masks into YOLO format.
         """
         return [
-            f"{class_id} " + " ".join(f"{coord:.6f}" for coord in normalize_coordinates(
+            f"{class_id - 1} " + " ".join(f"{coord:.6f}" for coord in normalize_coordinates(
                 self._simplify_polygon(mask), img_width, img_height
             ).flatten())
             for class_id, mask in zip(class_ids, masks)
