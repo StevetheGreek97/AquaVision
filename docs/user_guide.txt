@@ -1,0 +1,110 @@
+# AquaVision - User Guide
+
+## Introduction
+AquaVision is a powerful image segmentation tool designed to help users annotate and analyze images using various segmentation techniques. It provides manual, semi-automated, and AI-assisted segmentation methods to ensure precise and efficient workflows. This guide walks you through its key features and how to use them effectively.
+
+---
+
+## Application Interface
+### 1. Main Components
+AquaVision consists of the following key components:
+- **Sidebar**: Provides tools for navigation, segmentation, and class management.
+- **Image Display Area**: The main workspace where images and segmentation masks are shown.
+- **Menu Bar**: Contains options for file management, inference, and exporting results.
+
+---
+
+## Getting Started
+### 1. Loading Images
+- Open the **File** menu and select **Load Images**.
+- Choose a folder containing the images you want to process.
+- The first image will be displayed automatically.
+- Navigate between images using the **Previous Image** and **Next Image** buttons in the sidebar or the **Left (⬅) and Right (➡) arrow keys**.
+
+---
+
+## Image Segmentation Tools
+AquaVision provides three segmentation methods:
+
+### 1. Manual Mask Tool
+- Click **Manual Mask** in the sidebar to activate the tool.
+- Click on the image to place points—each point represents a vertex of the polygonal mask.
+- Ensure that at least **three points** are placed to form a valid mask.
+- Right-click to remove the last placed point if necessary.
+- When the shape is complete, press **S** to finalize the mask.
+- Look for the mask overlay on the image to confirm that it has been added.
+
+### 2. Intelligent Scissors (Edge-Based Segmentation)
+- Click **Intelligent Scissors** in the sidebar to activate the tool.
+- Click along the object’s boundary to set anchor points—these points help the tool define an optimal edge path.
+- Be precise in placing points along the edges to improve segmentation accuracy.
+- The algorithm automatically calculates and connects the path along detected edges.
+- If the segmentation appears incorrect, remove unnecessary anchor points and try again.
+- Press **S** to finalize and save the segmentation.
+
+### 3. AI Segmentation (SAM2)
+- Click **Segment Anything 2 (SAM2)** in the sidebar to activate the AI model.
+- Left-click on the object to place **foreground points** (areas belonging to the object).
+- Right-click to place **background points** (areas not part of the object).
+- Ensure that enough foreground and background points are provided for accurate segmentation.
+- Press **E** to execute AI-based segmentation and generate the mask.
+- Review the generated mask—if necessary, refine foreground and background selections and rerun segmentation.
+- Press **S** to save the final mask for further processing.
+
+---
+
+## Managing Classes
+AquaVision allows you to define and manage segmentation classes for annotation.
+- Click **Add Class** in the sidebar.
+- Enter a class name and select a color.
+- The class will appear in the dropdown menu.
+- To remove a class, select it and click **Remove Selected**.
+
+---
+
+## Running Inference
+AquaVision enables automated segmentation using deep learning models.
+1. Open the **Actions** menu.
+2. Select **Run Inference (YOLO)** or **Segment Anything (SAM)**.
+3. Choose a model from the dropdown list.
+4. Click **OK** to start segmentation.
+
+---
+
+## Viewing & Editing Masks
+- Open **File > Show Results** to view all masks for the current image.
+- Select a mask entry in the table to highlight it in the image display.
+- Double-click the class name in the table to rename it.
+- Press **Delete** to remove selected masks.
+
+---
+
+## Exporting Annotations
+AquaVision supports exporting segmentation masks in **YOLO format**.
+- Open **File > Export Results**.
+- Choose a folder for saving the YOLO annotation files.
+- The application generates `.txt` files with segmentation data and a `data.yaml` file containing class mappings.
+
+---
+
+## Keyboard Shortcuts
+__________________________________________
+| **Shortcut** | **Action**              |
+|----------------------------------------|
+| **⬅ / ➡**    | Navigate images         |
+| **S**        | Save mask               |
+| **E**        | Execute AI segmentation |
+| **Delete**   | Remove selected mask    |
+__________________________________________
+---
+
+## Troubleshooting
+- **Images not loading?** Ensure the folder contains supported formats (.png, .jpg, .bmp, .tiff).
+- **Inference not working?** Ensure **YOLO/SAM models** are placed in the correct directories (`models/yolo/` and `models/sam/`).
+
+---
+
+## Contact & Support
+For assistance, refer to this documentation or contact the support team.
+
+🚀 **Happy Segmenting with AquaVision!**
