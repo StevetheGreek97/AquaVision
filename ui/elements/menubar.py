@@ -1,7 +1,7 @@
-from PyQt6.QtWidgets import QMenuBar
-from PyQt6.QtGui import QAction
+from PyQt6.QtWidgets import QMenuBar, QDialog, QVBoxLayout, QTextEdit, QPushButton, QTextBrowser
+from PyQt6.QtGui import QAction, QFont
 
-
+from services.file_handlers import get_resource_path
 class MenuBar(QMenuBar):
     """
     A custom menu bar with options for File, Actions, View, and Help menus.
@@ -75,7 +75,7 @@ class MenuBar(QMenuBar):
         help_menu = self.addMenu("Help")
 
         actions = [
-            ("Documentation", None),  # Placeholder for documentation
+            ("Documentation", self.show_documentation),  # Placeholder for documentation
             ("About", None),  # Placeholder for about dialog
         ]
 
@@ -96,3 +96,34 @@ class MenuBar(QMenuBar):
             if callback:
                 action.triggered.connect(callback)
             menu.addAction(action)
+
+
+    def show_documentation(self):
+        """
+        Open the user guide in a resizable, styled dialog.
+        """
+        doc_dialog = QDialog(self.parent)
+        doc_dialog.setWindowTitle("📖 AquaVision Documentation")
+        doc_dialog.resize(700, 600)  # Optimal size for readability
+
+        # Load the formatted documentation
+        with open(get_resource_path("docs/user_guide.txt"), "r", encoding="utf-8") as file:
+            documentation_text = file.read()
+
+        # Create a rich-text display with styling
+        text_browser = QTextBrowser(doc_dialog)
+        text_browser.setReadOnly(True)
+        text_browser.setHtml(documentation_text.replace("\n", "<br>"))
+        text_browser.setFont(QFont("Arial", 11))
+
+        # Layout
+        layout = QVBoxLayout()
+        layout.addWidget(text_browser)
+
+        # Close button
+        close_button = QPushButton("Close", doc_dialog)
+        close_button.clicked.connect(doc_dialog.close)
+        layout.addWidget(close_button)
+
+        doc_dialog.setLayout(layout)
+        doc_dialog.exec()

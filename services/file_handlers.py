@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import sys
 def loader(folder_path):
     valid_extensions = (".png", ".jpg", ".jpeg", ".bmp", ".tiff", '.tif')
     if folder_path:
@@ -65,3 +66,12 @@ def write_annotations_to_file(image_name, yolo_annotations, export_dir):
     with open(txt_filename, 'w') as file:
         file.write("\n".join(yolo_annotations) + '\n')
     print(f"Annotations saved to: {txt_filename}")
+
+
+def get_resource_path(rel_path):
+    if getattr(sys, 'frozen', False):
+        base_path = sys._MEIPASS    
+    else:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+
+    return os.path.join(base_path, rel_path)

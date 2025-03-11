@@ -10,3 +10,6 @@ app.log
 sam2_configs/
 tester.py
 .vscode
+masks.db
+build/
+dist/

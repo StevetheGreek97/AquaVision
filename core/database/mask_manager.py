@@ -48,7 +48,6 @@ class MaskDatabaseManager:
 
             masks.append((mask_id, mask_array, class_name))
 
-        print(f"✅ Loaded {len(masks)} masks for {image_name}")
         return masks
 
 

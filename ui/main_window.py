@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QMainWindow, QWidget, QFileDialog, QHBoxLayout, QColorDialog, QInputDialog,QApplication
+from PyQt6.QtWidgets import QMainWindow, QWidget, QFileDialog, QHBoxLayout,QApplication
 from ui.elements.image_display import ImageDisplay
 from ui.elements.menubar import MenuBar
 from ui.elements.sidebar import Sidebar
@@ -11,7 +11,7 @@ from core.inference_manager import  InferenceManager
 from PyQt6.QtCore import pyqtSignal
 from core.exporters.yolo_exporter import YOLOExporter
 from core.managers.tool_manager import ToolManager
-from services.file_handlers import loader
+from services.file_handlers import loader, get_resource_path
 from services.logger import logger, log_memory_usage
 
 class MainApp(QMainWindow):
@@ -27,8 +27,8 @@ class MainApp(QMainWindow):
         self.resize(1000, 600)
         #self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
-        self.models_dir = "models/yolo"
-        self.sam_dir = "models/sam"
+        self.models_dir = get_resource_path("models/yolo")
+        self.sam_dir = get_resource_path("models/sam")
         self.current_model_path = None
 
         # Initialize StateManager
@@ -106,10 +106,6 @@ class MainApp(QMainWindow):
             self.image_display.display_image(previous_image_path)
 
             print(f"Current image: {self.state_manager.current_image_index + 1}/{len(self.state_manager.image_paths)}")
-            # Emit signal with the new image path and its mask data
-            #image_mask = self.state_manager.image_masks.get(previous_image_path)
-            #self.image_changed.emit(previous_image_path, image_mask)
-            #self.print_current_state()
         else:
             logger.info("No previous image available.")
 
@@ -187,6 +183,7 @@ class MainApp(QMainWindow):
             if event.key() == Qt.Key.Key_Delete:
                 print("Delete key pressed")
                 self.image_display.delete_selected_masks()
+                self.results_dialog.refresh_table(self.state_manager.current_image_path)
                 self.show_results()  # Update results
                 return True
             elif event.key() == Qt.Key.Key_Right:  # Navigate to the next image

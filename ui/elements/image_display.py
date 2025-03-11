@@ -214,6 +214,8 @@ class ImageDisplay(QGraphicsView):
         if event.key() == Qt.Key.Key_S:
             if self.parent.tool_manager.current_tool:
                 self.parent.tool_manager.current_tool.complete_mask()
+                self.parent.show_results()
+                self.parent.results_dialog.refresh_table(self.parent.state_manager.current_image_path)
 
         if event.key() == Qt.Key.Key_E:
             if isinstance(self.parent.tool_manager.current_tool, SamMasker2):

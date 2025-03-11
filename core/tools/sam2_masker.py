@@ -7,6 +7,8 @@ from sam2.build_sam import build_sam2
 import torch
 import cv2
 
+from services.file_handlers import get_resource_path
+
 
 class SamMasker2(QObject):
     """
@@ -27,7 +29,7 @@ class SamMasker2(QObject):
         self.device = torch.device(device if torch.cuda.is_available() else 'cpu')
 
         # Load the SAM 2 model and predictor
-        sam2_model = build_sam2("sam2_hiera_t.yaml", 'sam2_configs/sam2_hiera_tiny.pt', device=self.device)
+        sam2_model = build_sam2(get_resource_path("/home/steve/exp/lib/python3.12/site-packages/sam2_configs/sam2_hiera_t.yaml"), get_resource_path('sam2_configs/sam2_hiera_tiny.pt'), device=self.device)
         self.predictor = SAM2ImagePredictor(sam2_model)
 
         self.foreground_points = []
