@@ -31,7 +31,7 @@ class MenuBar(QMenuBar):
 
         actions = [
             ("Load Images", self.parent.load_images),
-            ("Show Results", self.parent.show_results), 
+            ("Show Results", self.parent.show_results ), #self.parent.toggle_results_dock
             ("Save Results", None),
             ("Export Results", self.parent._export_results), 
             ("Exit", self.parent.close),
@@ -39,18 +39,13 @@ class MenuBar(QMenuBar):
 
         self._add_actions_to_menu(file_menu, actions)
 
-    def _init_actions_menu(self):
-        """
-        Create the Actions menu with options for running inference and undo/redo.
-        """
-        actions_menu = self.addMenu("Actions")
 
     def _init_actions_menu(self):
         actions_menu = self.addMenu("Actions")
 
         actions = [
             ("Run Inference", lambda: print("Run Inference clicked") or self.parent.popup_inference_dialog(self.parent.models_dir, 'yolo', 'Running inference...')),
-            ("Segment Anything", lambda: print("Segment Anything clicked") or self.parent.popup_inference_dialog(self.parent.sam_dir, 'sam', 'Segmenting...'))
+             ("Segment Anything", None)# lambda: self.parent.run_sam2_auto() 
         ]
 
         self._add_actions_to_menu(actions_menu, actions)

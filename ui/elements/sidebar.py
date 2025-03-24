@@ -1,7 +1,11 @@
 from PyQt6.QtWidgets import (
     QVBoxLayout, QPushButton, QHBoxLayout, QWidget, QComboBox, QColorDialog, QInputDialog
 )
-from PyQt6.QtGui import QColor
+import qtawesome as qta
+from PyQt6.QtCore import QSize
+from PyQt6.QtWidgets import QMessageBox
+import re
+from services.file_handlers import get_tooltip
 class Sidebar(QWidget):
     """
     Sidebar UI component for navigation, drawing controls, and class-color management.
@@ -16,6 +20,8 @@ class Sidebar(QWidget):
         self._init_navigation_buttons()
         self._init_manual_mask()
         self._init_sam2()
+        self._init_sam2_box()
+        self._init_dextr()
         self._init_intelligent_scissors()
         self._init_class_management()
 
@@ -44,39 +50,64 @@ class Sidebar(QWidget):
         self.populate_class_dropdown()
    
     def _init_navigation_buttons(self):
-        """
-        Initialize the navigation buttons (Previous and Next).
-        """
         button_layout = QHBoxLayout()
 
-        prev_button = self._create_button("Previous Image", self.parent.previous_image)
+        prev_button = self._create_icon_button("fa5s.arrow-left", self.parent.previous_image, "prev_image")
+        next_button = self._create_icon_button("fa5s.arrow-right", self.parent.next_image, "next_image")
+
         button_layout.addWidget(prev_button)
-
-        next_button = self._create_button("Next Image",self.parent.next_image)
         button_layout.addWidget(next_button)
-
         self.layout.addLayout(button_layout)
 
     def _init_manual_mask(self):
-        self.manual_mask = QPushButton("Manual Mask", self)
-        self.manual_mask.setCheckable(True)  # Toggle mode
-        self.manual_mask.clicked.connect(self.toggle_manual_mask)
+        self.manual_mask = self._create_icon_button("fa5s.pencil-alt", self.toggle_manual_mask, "manual_mask", None)
+        self.manual_mask.setCheckable(True)
         self.layout.addWidget(self.manual_mask)
+    
+    def _init_sam2_box(self):
+        self.sam2box = self._create_icon_button('', self.toggle_sam2_boxer, "sam2_box", 'SAM2-Box')
+        self.sam2box.setCheckable(True)
+        self.layout.addWidget(self.sam2box)
+
+    def _init_dextr(self):
+
+        self.dextr = self._create_icon_button('', self.toggle_dextr, "dextr", 'DEXTR')
+        self.dextr.setCheckable(True)
+        self.layout.addWidget(self.dextr)
 
     def _init_sam2(self):
-        self.sam2 = QPushButton("Segment Anything 2", self)
-        self.sam2.setCheckable(True)  # Toggle mode
-        self.sam2.clicked.connect(self.toggle_sam2)
+
+        self.sam2 = self._create_icon_button('', self.toggle_sam2, "sam2", 'Segment Anything 2')
+        self.sam2.setCheckable(True)
         self.layout.addWidget(self.sam2)
     
     def _init_intelligent_scissors(self):
         """
         Initialize the Intelligent Scissors toggle button.
         """
-        self.intelligent_scissors = QPushButton("Intelligent Scissors", self)
-        self.intelligent_scissors.setCheckable(True)  # Toggle mode
-        self.intelligent_scissors.clicked.connect(self.toggle_intelligent_scissors)
+        #self.intelligent_scissors = QPushButton("Intelligent Scissors", self)
+        self.intelligent_scissors = self._create_icon_button("fa5s.cut", self.toggle_intelligent_scissors, "intelligent_scissors", None)
+        self.intelligent_scissors.setCheckable(True)
         self.layout.addWidget(self.intelligent_scissors)
+   
+    def toggle_sam2_boxer(self):
+        """
+        Toggle SAM2 mode using ToolManager.
+        """
+        if self.sam2box.isChecked():
+            self.parent.tool_manager.enable_tool("sam2_box")  # ✅ Use ToolManager
+        else:
+            self.parent.tool_manager.disable_tools()
+
+    def toggle_dextr(self):
+        """
+        Toggle SAM2 mode using ToolManager.
+        """
+        if self.dextr.isChecked():
+            self.parent.tool_manager.enable_tool("dextr")  # ✅ Use ToolManager
+
+        else:
+            self.parent.tool_manager.disable_tools()
 
     def toggle_sam2(self):
         """
@@ -105,23 +136,7 @@ class Sidebar(QWidget):
         else:
             self.parent.tool_manager.disable_tools()
 
-    @staticmethod
-    def _create_button(label, callback):
-        """
-        Utility function to create a QPushButton.
-
-        Args:
-            label (str): Text label for the button.
-            callback (callable): Function to execute on button click.
-
-        Returns:
-            QPushButton: Configured button.
-        """
-        button = QPushButton(label)
-        if callback:
-            button.clicked.connect(callback)
-        return button
-      
+ 
     def get_selected_class_color(self):
         """
         Get the selected class name and color from the dropdown.
@@ -146,6 +161,17 @@ class Sidebar(QWidget):
         if not ok or not class_name.strip():
             print("❌ Class name cannot be empty.")
             return
+        class_name = class_name.strip()
+
+        # ✅ Check for allowed characters (only a-z, A-Z, 0-9, _)
+        if not re.fullmatch(r"\w+", class_name):
+            QMessageBox.warning(
+                self, 
+                "Invalid Class Name", 
+                "Class name must contain only letters, numbers, and underscores (no spaces or special characters)."
+            )
+            return
+
         
         class_name = class_name.strip()
 
@@ -163,32 +189,63 @@ class Sidebar(QWidget):
         # ✅ Refresh the dropdown
         self.populate_class_dropdown()
 
+    def _create_icon_button(self, fa_icon_name, callback, tooltip=None, label=None):
+        button = QPushButton(label or "")
+        if fa_icon_name:
+            button.setIcon(qta.icon(fa_icon_name))
+        button.setIconSize(QSize(14, 14))
+        button.setFixedHeight(32)
+        if tooltip:
+            button.setToolTip(get_tooltip(tooltip))
+        if callback:
+            button.clicked.connect(callback)
+        return button
+
+
 
     def remove_selected_class(self):
-        """
-        Remove the selected class from the dropdown and database.
-        """
         current_index = self.class_dropdown.currentIndex()
-
         if current_index < 0:
             print("❌ No class selected for removal.")
             return
 
         class_name = self.class_dropdown.currentText().split(" ")[0]  # Extract name
-        print(f"🗑 Removing class: {class_name}")
+        print(f"🗑 Preparing to remove class: {class_name}")
 
-        # Delete class from database
+        # ✅ Count how many masks would be deleted
+        count = self.parent.state_manager.mask_manager.count_masks_by_class(class_name)
+
+        # ✅ Show confirmation popup
+        msg_box = QMessageBox(self)
+        msg_box.setIcon(QMessageBox.Icon.Warning)
+        msg_box.setWindowTitle("Confirm Deletion")
+        msg_box.setText(f"Are you sure you want to delete the class '{class_name}'?")
+        msg_box.setInformativeText(f"This will also delete {count} mask(s) associated with this class.")
+        msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+
+        result = msg_box.exec()
+
+        if result == QMessageBox.StandardButton.No:
+            print("❌ Deletion cancelled by user.")
+            return
+
+        # ✅ Proceed with deletion
         self.parent.state_manager.class_manager.remove_class(class_name)
-
-        # Delete all masks associated with the class
-        #self.parent.state_manager.mask_manager.delete_masks_by_class(class_name)
-
-        # Reindex remaining classes
+        self.parent.state_manager.mask_manager.delete_masks_by_class(class_name)
         self.parent.state_manager.class_manager.reindex_classes()
 
-        # Remove from dropdown
         self.class_dropdown.removeItem(current_index)
-        print(f"✅ Class '{class_name}' and associated masks deleted and reindexed.")
+        print(f"✅ Class '{class_name}' and {count} mask(s) deleted and reindexed.")
+
+        # ✅ Refresh the image display
+        self.parent.image_display.display_image(self.parent.state_manager.current_image_path, preserve_zoom=True)
+
+        # ✅ Refresh the results table if it's open
+        if hasattr(self.parent, 'results_dialog') and self.parent.results_dialog.isVisible():
+            self.parent.results_dialog.refresh_table(self.parent.state_manager.current_image_path)
+
+
 
     def pick_class_color(self):
         """
@@ -213,3 +270,20 @@ class Sidebar(QWidget):
 
         self.class_dropdown.addItems(class_names)  # Add class names from database
         print(f"✅ Loaded {len(class_names)} classes into the dropdown.")
+
+    def has_valid_class_selection(self):
+        """
+        Ensure a class is selected and the dropdown is not empty.
+
+        Returns:
+            bool: True if a valid class is selected, else False.
+        """
+        if self.class_dropdown.count() == 0:
+            QMessageBox.warning(self, "No Classes", "⚠️ No classes defined yet. Please add a class first.")
+            return False
+
+        if self.class_dropdown.currentIndex() < 0:
+            QMessageBox.warning(self, "No Class Selected", "⚠️ Please select a class before saving the mask.")
+            return False
+
+        return True

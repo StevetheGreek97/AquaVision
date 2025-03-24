@@ -78,6 +78,9 @@ class ManualMask(QObject):
         if len(self.temp_points) < 3:
             print("Not enough points to create a mask.")
             return np.array([])
+        if not self.parent.parent.sidebar.has_valid_class_selection():
+            self.clear_temp_items()
+            return  # ❌ Cancel saving if no valid class is selected
 
         # Close the polygon by connecting the last point to the first
         last_point = self.temp_points[-1].rect().center()

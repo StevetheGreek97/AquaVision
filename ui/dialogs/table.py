@@ -1,11 +1,11 @@
-from PyQt6.QtWidgets import QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem, QPushButton
+from PyQt6.QtWidgets import QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem, QPushButton, QWidget
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtCore import Qt
 import cv2
 import numpy as np
 from PyQt6.QtGui import QColor, QBrush
 
-class MaskResultsDialog(QDialog):
+class MaskResultsDialog(QWidget):
     masks_selected = pyqtSignal(list)  # Signal for mask selection
 
     def __init__(self, parent):
@@ -24,6 +24,11 @@ class MaskResultsDialog(QDialog):
         self.table.itemChanged.connect(self.on_item_changed)  # Detect changes in the table
         self.table.setSelectionMode(QTableWidget.SelectionMode.MultiSelection)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        #self.table.setDragEnabled(True)
+        #self.table.setAcceptDrops(True)
+        #self.table.viewport().setAcceptDrops(True)
+        #self.table.setDropIndicatorShown(True)
+
 
         # Populate the table
         self.populate_table()

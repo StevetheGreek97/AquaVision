@@ -110,3 +110,17 @@ class MaskDatabaseManager:
         self.db.execute_query(query, [image_name] + mask_ids)
 
         print(f"✅ Deleted mask(s) with ID(s): {mask_ids} from image: {image_name}")
+
+    def delete_masks_by_class(self, class_name):
+        """
+        Delete all masks associated with a specific class name.
+        """
+        self.db.execute_query("DELETE FROM masks WHERE class_name = ?", (class_name,))
+        print(f"🗑 Deleted all masks with class name: {class_name}")
+
+    def count_masks_by_class(self, class_name):
+        """
+        Count how many masks are associated with a specific class.
+        """
+        result = self.db.fetch_one("SELECT COUNT(*) FROM masks WHERE class_name = ?", (class_name,))
+        return result[0] if result else 0

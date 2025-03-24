@@ -1,16 +1,19 @@
-from PyQt6.QtWidgets import QMainWindow, QWidget, QFileDialog, QHBoxLayout,QApplication
+from PyQt6.QtWidgets import QMainWindow, QWidget, QFileDialog, QHBoxLayout,QApplication, QVBoxLayout, QDockWidget
+from PyQt6.QtCore import Qt, QEvent, pyqtSignal
 from ui.elements.image_display import ImageDisplay
 from ui.elements.menubar import MenuBar
 from ui.elements.sidebar import Sidebar
 from ui.dialogs.inference_dialog import InferenceDialog
 from ui.dialogs.table import MaskResultsDialog
+from ui.elements.slider import ImageSlider
 import os
-from PyQt6.QtCore import Qt, QEvent
+from PyQt6.QtGui import QIcon 
 from core.state import StateManager  
 from core.inference_manager import  InferenceManager
-from PyQt6.QtCore import pyqtSignal
 from core.exporters.yolo_exporter import YOLOExporter
 from core.managers.tool_manager import ToolManager
+from core.tools.auto_sam2 import Sam2Auto
+
 from services.file_handlers import loader, get_resource_path
 from services.logger import logger, log_memory_usage
 
@@ -25,6 +28,9 @@ class MainApp(QMainWindow):
         super().__init__()
         self.setWindowTitle("AquaVision")
         self.resize(1000, 600)
+
+        icon_path = get_resource_path("resources/icons/icon.ico")
+        self.setWindowIcon(QIcon(icon_path))
         #self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         self.models_dir = get_resource_path("models/yolo")
@@ -43,16 +49,51 @@ class MainApp(QMainWindow):
         self.sidebar = Sidebar(self)
         self.menu_bar = MenuBar(self)
         self.setMenuBar(self.menu_bar)
+        self.slider = ImageSlider(self)
 
         
 
-        # Layout
+        # Create main layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        layout = QHBoxLayout(central_widget)
-        layout.addWidget(self.sidebar, stretch=1)
-        layout.addWidget(self.image_display, stretch=4)
+        main_layout = QHBoxLayout(central_widget)  # Horizontal layout
+
+        # Create image container layout (Slider above ImageDisplay)
+        image_layout = QVBoxLayout()
+        image_layout.addWidget(self.slider)  # Add slider above
+        image_layout.addWidget(self.image_display)  # Add image display
+
+        # Add sidebar and image container to main layout
+        main_layout.addWidget(self.sidebar, stretch=1)  # Sidebar on the left
+        main_layout.addLayout(image_layout, stretch=4)  # Image section on the right
+
+        #self.init_dock_widgets()
+
+
+        self.state_manager.image_changed.connect(self.slider.update_slider)
         QApplication.instance().installEventFilter(self)
+    
+    #def init_dock_widgets(self):
+    #    """Initialize dockable dialogs."""
+    #    
+    #    # Create a dock for results table
+    #    self.results_dock = QDockWidget("Results Table", self)
+    #    self.results_dialog = MaskResultsDialog(self)  # Create the table widget
+    #    self.results_dock.setWidget(self.results_dialog)
+
+        # Allow the dock to be moved, closed, and floated
+    #    self.results_dock.setWindowModality(Qt.WindowModality.NonModal)
+    #    self.results_dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
+    #    self.results_dock.setFeatures(
+    #        QDockWidget.DockWidgetFeature.DockWidgetMovable |
+    #        QDockWidget.DockWidgetFeature.DockWidgetClosable |
+    #        QDockWidget.DockWidgetFeature.DockWidgetFloatable
+    #    )
+
+    #    self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.results_dock)  # Default to bottom
+    #    self.results_dock.hide()  # Keep hidden until needed
+
+
 
     def load_images(self):
         """
@@ -68,6 +109,7 @@ class MainApp(QMainWindow):
             
             if current_image_path:
                 print(f"Displaying initial image from folder: {current_image_path}")  # Debug
+                self.slider.set_image_count(len(image_paths)) 
                 self.image_display.display_image(current_image_path)
                 #print(self.state_manager.current_masks)
 
@@ -196,8 +238,18 @@ class MainApp(QMainWindow):
         return super().eventFilter(source, event)
 
 
+    def run_sam2_auto(self):
+        """
+        Runs SAM2 automatic segmentation from the menu.
+        """
+        model = Sam2Auto(self)
+        model.generate_masks(self.state_manager.current_image)
+        print("🟢 Running SAM2 Auto Segmentation...")
 
-
-
-
-
+#    def toggle_results_dock(self):
+#        """Toggle visibility of the Results Table (dockable)."""
+#        if self.results_dock.isHidden():
+#            self.results_dock.show()
+#            self.results_dock.raise_()  # Bring it to front if it's hidden behind something
+#        else:
+#            self.results_dock.hide()

@@ -78,21 +78,25 @@ class IntelligentScissors(QObject):
         """
         Set the current image and compute the edge map and weights.
         """
-        if image is None:
-            raise ValueError("No image provided.")
+        if image is not None:
+            
+            #raise ValueError("No image provided.")
 
-        resized_image = cv2.resize(image, (0, 0), fx=self.scale_factor, fy=self.scale_factor)
-        gray_image = cv2.cvtColor(resized_image, cv2.COLOR_RGB2GRAY)
-        edge_map = cv2.Canny(gray_image, 50, 150)
-        self.edge_weights = 1 / (edge_map + 1e-5)  # Avoid division by zero
-        print("Edge map and weights computed.")
+            resized_image = cv2.resize(image, (0, 0), fx=self.scale_factor, fy=self.scale_factor)
+            gray_image = cv2.cvtColor(resized_image, cv2.COLOR_RGB2GRAY)
+            edge_map = cv2.Canny(gray_image, 50, 150)
+            self.edge_weights = 1 / (edge_map + 1e-5)  # Avoid division by zero
+            print("Edge map and weights computed.")
+        else: 
+            print('Image not found')
 
     def add_seed_point(self, point):
         """
         Add a seed point and update the polygon.
         """
         if self.edge_weights is None:
-            raise ValueError("Edge weights not set. Please set the image first.")
+            return
+            #raise ValueError("Edge weights not set. Please set the image first.")
 
         if self.seed_points:
             last_point = self.seed_points[-1]
@@ -255,6 +259,9 @@ class IntelligentScissors(QObject):
         """
         Complete the current mask and add it to the list of masks.
         """
+        if not self.parent.parent.sidebar.has_valid_class_selection():
+            self.clear_temp_items()
+            return  # ❌ Cancel saving if no valid class is selected
 
         # Create the mask polygon from the polygon points
         mask_polygon = np.array(self.polygon_points, dtype=np.float32)

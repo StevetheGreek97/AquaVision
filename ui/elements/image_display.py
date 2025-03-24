@@ -7,7 +7,8 @@ import numpy as np
 from services.logger import logger, log_memory_usage
 from core.tools.manual_mask import ManualMask
 from core.tools.sam2_masker import SamMasker2
-
+from core.tools.sam2_boxmasker import SamBoxMasker
+from core.tools.dextr_mask import DEXTRMasker
 from core.tools.intellignent_scissors import IntelligentScissors
 
 class ImageDisplay(QGraphicsView):
@@ -91,7 +92,6 @@ class ImageDisplay(QGraphicsView):
         mask_layer = np.zeros_like(image, dtype=np.uint8)  
 
         for mask_id, mask, class_name in masks:
-            print(f"🔍 Overlaying Mask - ID: {mask_id}, Class: {class_name}, Shape: {mask.shape}")
 
             if mask.shape[0] < 3:  
                 print(f"❌ Skipping mask {mask_id} - Invalid shape {mask.shape}")
@@ -115,7 +115,6 @@ class ImageDisplay(QGraphicsView):
 
             # 🔹 Ensure Highlighted Masks Have White Borders
             if str(mask_id) in self.highlighted_mask_ids:
-                print(f"🌟 Highlighting Mask {mask_id}")
                 cv2.polylines(mask_layer, [mask.astype(np.int32)], isClosed=True, color=(255, 255, 255), thickness=outline_thickness + 2)
 
         # Blend the final mask layer with the original image
@@ -168,7 +167,6 @@ class ImageDisplay(QGraphicsView):
         """
         self.highlighted_mask_ids = [str(row["mask_id"]) for row in selected_rows]  # Ensure all selected IDs are stored as strings
 
-        print(f"🔍 Selected Mask IDs for Highlighting: {self.highlighted_mask_ids}")  # Debugging
 
         # Redraw the image with the highlighted masks
         self.display_image(self.parent.state_manager.current_image_path, preserve_zoom=True)
@@ -215,11 +213,18 @@ class ImageDisplay(QGraphicsView):
             if self.parent.tool_manager.current_tool:
                 self.parent.tool_manager.current_tool.complete_mask()
                 self.parent.show_results()
-                self.parent.results_dialog.refresh_table(self.parent.state_manager.current_image_path)
+                if hasattr(self.parent, 'results_dialog') and self.parent.results_dialog.isVisible():
+                    self.parent.results_dialog.refresh_table(self.parent.state_manager.current_image_path)
+
 
         if event.key() == Qt.Key.Key_E:
             if isinstance(self.parent.tool_manager.current_tool, SamMasker2):
                 a = self.parent.tool_manager.current_tool.generate_mask(self.parent.state_manager.current_image)
+            if isinstance(self.parent.tool_manager.current_tool, SamBoxMasker):
+                a = self.parent.tool_manager.current_tool.generate_mask(self.parent.state_manager.current_image)
+            if isinstance(self.parent.tool_manager.current_tool, DEXTRMasker):
+                a = self.parent.tool_manager.current_tool.generate_mask(self.parent.state_manager.current_image)
+
 
     def wheelEvent(self, event):
         """
@@ -288,11 +293,19 @@ class ImageDisplay(QGraphicsView):
             if isinstance(self.parent.tool_manager.current_tool, ManualMask):
                 self.parent.tool_manager.current_tool.add_point(point)
 
+            if isinstance(self.parent.tool_manager.current_tool, DEXTRMasker):
+                self.parent.tool_manager.current_tool.add_point(point)
+
             if isinstance(self.parent.tool_manager.current_tool, SamMasker2):
                 self.parent.tool_manager.current_tool.add_point(point, 1)
 
             if isinstance(self.parent.tool_manager.current_tool, IntelligentScissors):
                 self.parent.tool_manager.current_tool.add_seed_point(point)
+
+            if isinstance(self.parent.tool_manager.current_tool, SamBoxMasker):
+                self.parent.tool_manager.current_tool.box_start = point  
+                self.parent.tool_manager.current_tool.is_drawing_box = True 
+                print(f"📏 Started Box at {point}")
 
         elif event.button() == Qt.MouseButton.RightButton:
             if isinstance(self.parent.tool_manager.current_tool, ManualMask):
@@ -314,6 +327,9 @@ class ImageDisplay(QGraphicsView):
         """
         Update the live wire dynamically as the cursor moves.
         """
+        scene_pos = self.mapToScene(event.position().toPoint())
+        point = (int(scene_pos.x()), int(scene_pos.y()))
+
         if self._is_panning:
             delta = event.position() - self._pan_start
             self._pan_start = event.position()
@@ -330,11 +346,27 @@ class ImageDisplay(QGraphicsView):
         if isinstance(self.parent.tool_manager.current_tool, IntelligentScissors):
             if self.parent.tool_manager.current_tool.seed_points:
                 self.parent.tool_manager.current_tool.update_dynamic_path((self.x, self.y))
-    
+        
+        if isinstance(self.parent.tool_manager.current_tool, SamBoxMasker):
+            if self.parent.tool_manager.current_tool.is_drawing_box:
+                self.parent.tool_manager.current_tool.update_box_preview(self.parent.tool_manager.current_tool.box_start, point)
+                print(f"📏 Updating Box: {self.parent.tool_manager.current_tool.box_start} → {point}")
+
     def mouseReleaseEvent(self, event):
         """
         Stop panning when the middle mouse button is released.
         """
+        scene_pos = self.mapToScene(event.position().toPoint())
+        point = (int(scene_pos.x()), int(scene_pos.y()))
+
+        if event.button() == Qt.MouseButton.LeftButton:
+             if isinstance(self.parent.tool_manager.current_tool, SamBoxMasker):
+                if self.parent.tool_manager.current_tool.is_drawing_box:
+                    self.parent.tool_manager.current_tool.add_box(self.parent.tool_manager.current_tool.box_start, point)
+                    print(f"✅ Finalized Box: {self.parent.tool_manager.current_tool.box}")
+                    self.parent.tool_manager.current_tool.is_drawing_box = False  # ✅ Reset drawing flag
+
+
         if event.button() == Qt.MouseButton.MiddleButton:
             self._is_panning = False
 

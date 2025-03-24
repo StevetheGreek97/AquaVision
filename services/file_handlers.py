@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import sys
+import yaml
 def loader(folder_path):
     valid_extensions = (".png", ".jpg", ".jpeg", ".bmp", ".tiff", '.tif')
     if folder_path:
@@ -68,10 +69,19 @@ def write_annotations_to_file(image_name, yolo_annotations, export_dir):
     print(f"Annotations saved to: {txt_filename}")
 
 
+
 def get_resource_path(rel_path):
+    """Get the absolute path to a resource, adjusting for executable and normal script execution."""
     if getattr(sys, 'frozen', False):
-        base_path = sys._MEIPASS    
+        # If the application is running as an executable (PyInstaller)
+        base_path = sys._MEIPASS  
     else:
-        base_path = os.path.dirname(os.path.abspath(__file__))
+        # Normal script execution: move one directory up to get out of 'services'
+        base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     return os.path.join(base_path, rel_path)
+
+def get_tooltip(tool):
+    with open(get_resource_path('resources/docs/tooltips.yml'), 'r') as file:
+        TOOLTIPS = yaml.safe_load(file)
+        return TOOLTIPS[tool]
