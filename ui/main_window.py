@@ -1,10 +1,11 @@
 from PyQt6.QtWidgets import QMainWindow, QWidget, QFileDialog, QHBoxLayout,QApplication, QVBoxLayout, QDockWidget
 from PyQt6.QtCore import Qt, QEvent, pyqtSignal
-from ui.elements.image_display import ImageDisplay
+from ui.elements.image_display.image_display import ImageDisplay
 from ui.elements.menubar import MenuBar
 from ui.elements.sidebar import Sidebar
 from ui.dialogs.inference_dialog import InferenceDialog
-from ui.dialogs.table import MaskResultsDialog
+from ui.dialogs.table import MaskResultsDock
+from ui.dialogs.instance_count import MaskStatisticsDock
 from ui.elements.slider import ImageSlider
 import os
 from PyQt6.QtGui import QIcon 
@@ -51,6 +52,7 @@ class MainApp(QMainWindow):
         self.setMenuBar(self.menu_bar)
         self.slider = ImageSlider(self)
 
+
         
 
         # Create main layout
@@ -72,27 +74,6 @@ class MainApp(QMainWindow):
 
         self.state_manager.image_changed.connect(self.slider.update_slider)
         QApplication.instance().installEventFilter(self)
-    
-    #def init_dock_widgets(self):
-    #    """Initialize dockable dialogs."""
-    #    
-    #    # Create a dock for results table
-    #    self.results_dock = QDockWidget("Results Table", self)
-    #    self.results_dialog = MaskResultsDialog(self)  # Create the table widget
-    #    self.results_dock.setWidget(self.results_dialog)
-
-        # Allow the dock to be moved, closed, and floated
-    #    self.results_dock.setWindowModality(Qt.WindowModality.NonModal)
-    #    self.results_dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
-    #    self.results_dock.setFeatures(
-    #        QDockWidget.DockWidgetFeature.DockWidgetMovable |
-    #        QDockWidget.DockWidgetFeature.DockWidgetClosable |
-    #        QDockWidget.DockWidgetFeature.DockWidgetFloatable
-    #    )
-
-    #    self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.results_dock)  # Default to bottom
-    #    self.results_dock.hide()  # Keep hidden until needed
-
 
 
     def load_images(self):
@@ -188,28 +169,22 @@ class MainApp(QMainWindow):
         event.accept()
 
     def show_results(self):
-        """
-        Show a table with mask IDs and surface areas for the current image.
-        """
         current_image_path = self.state_manager.current_image_path
-        if not current_image_path:
-            print("No image is currently loaded.")
-            return
 
-        image_mask = self.state_manager.current_masks
-        if not image_mask:
-            print(f"No masks found for current image: {current_image_path}")
-            return
+        if not hasattr(self, 'annotations'):
+            self.annotations = MaskResultsDock(self)
+            self.annotations.masks_selected.connect(self.image_display.set_highlighted_masks)
+            self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.annotations)
+        if not hasattr(self, 'statistics') or self.statistics is None:
+            self.statistics = MaskStatisticsDock(self)
+            self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.statistics)
+        
+        print("Refreshing results and statistics...")
+        self.annotations.refresh_table(current_image_path)
+        self.statistics.refresh_plot()
+        self.annotations.show()
+        self.statistics.show()
 
-        # Open the results dialog or refresh it if already open
-        if hasattr(self, 'results_dialog') and self.results_dialog.isVisible():
-            print("Refreshing the results dialog...")
-            self.results_dialog.refresh_table(current_image_path)  # Refresh the table
-        else:
-            print("Opening a new results dialog...")
-            self.results_dialog = MaskResultsDialog(self)
-            self.results_dialog.masks_selected.connect(self.image_display.set_highlighted_masks)
-            self.results_dialog.show()
 
     def _export_results(self):
         exporter = YOLOExporter(self)
@@ -225,7 +200,7 @@ class MainApp(QMainWindow):
             if event.key() == Qt.Key.Key_Delete:
                 print("Delete key pressed")
                 self.image_display.delete_selected_masks()
-                self.results_dialog.refresh_table(self.state_manager.current_image_path)
+                self.annotations.refresh_table(self.state_manager.current_image_path)
                 self.show_results()  # Update results
                 return True
             elif event.key() == Qt.Key.Key_Right:  # Navigate to the next image

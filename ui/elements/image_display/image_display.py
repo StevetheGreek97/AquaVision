@@ -1,209 +1,174 @@
-from PyQt6.QtCore import Qt, QPointF
+from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QImage, QPixmap, QPainter
-from PyQt6.QtWidgets import  QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QTableWidget
-import os
-import cv2
-import numpy as np
-from services.logger import logger, log_memory_usage
+from PyQt6.QtWidgets import QTableWidget
 from core.tools.manual_mask import ManualMask
 from core.tools.sam2_masker import SamMasker2
 from core.tools.sam2_boxmasker import SamBoxMasker
 from core.tools.dextr_mask import DEXTRMasker
 from core.tools.intellignent_scissors import IntelligentScissors
+import cv2
+import numpy as np
+
+from PyQt6.QtWidgets import QApplication
+
+from PyQt6.QtWidgets import QGraphicsView
+
+
 
 class ImageDisplay(QGraphicsView):
     """
-    A QGraphicsView for displaying images with zoom and pan functionality, including zoom limits.
+    A QGraphicsView for displaying images and masks with zoom and pan functionality.
+    No control or interaction logic here.
     """
 
     def __init__(self, parent):
-        super().__init__()
+        super().__init__(parent)
         self.parent = parent
+
+        self.x, self.y = None, None
+        self._zoom_factor = 1.0
+        self._zoom_min = 1.0
+        self._zoom_max = 10.0
+        self._is_panning = False
 
         self.highlighted_mask_ids = []
 
-        # Set up the QGraphicsScene
         self.scene = QGraphicsScene(self)
         self.setScene(self.scene)
 
-        # Add a QGraphicsPixmapItem to display the image
         self.pixmap_item = QGraphicsPixmapItem()
         self.scene.addItem(self.pixmap_item)
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
 
-        # Set default alignment and rendering options
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setRenderHints(QPainter.RenderHint.SmoothPixmapTransform | QPainter.RenderHint.Antialiasing)
         self.setMouseTracking(True)
 
-        # Initialize pan functionality
-        self._is_panning = False
-        self._pan_start = QPointF()
-
-
-        self.x, self.y = None, None
-
-        # Initialize zoom limits and factor
-        self._zoom_factor = 1.0
-        self._zoom_min = 1.0  # Minimum zoom level (100% of original size)
-        self._zoom_max = 10.0  # Maximum zoom level (400% of original size)
-
-        
 
     def display_image(self, image_path, preserve_zoom=False):
         """
-        Load an image from the given path, overlay its masks, and display it.
+        Load and display the image along with overlays.
         """
         if not image_path:
-            print("No image path provided to display.")
+            print("No image path provided.")
             return
-        
-        # Read the image using OpenCV
+
+        import cv2
+
         image = cv2.imread(image_path)
         if image is None:
             print(f"Failed to load image: {image_path}")
             return
-        
-        # Convert the image to RGB format
+
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        self.parent.state_manager.current_image = image
 
-        self.parent.state_manager.current_image = image  # Update state with current image
-
-        # Retrieve the masks and overlay them
         image = self.overlay_masks(image)
-
-        #if self.mask_editor and self.mask_editor.is_editing:
-        #    image = self.overlay_editing_masks(image)
-
         self._update_pixmap(image)
-        
+
         if not preserve_zoom:
             self.resetTransform()
             self._zoom_factor = 1.0
             self.scene.setSceneRect(self.pixmap_item.boundingRect())
             self.fitInView(self.pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
 
-    def overlay_masks(self, image, alpha=0.6, outline_thickness=2):
+
+    def overlay_masks(self, image, alpha=0.4, outline_thickness=1):
         """
-        Overlay masks on the given image with transparency and ensure all masks remain visible.
+        Overlay all masks onto the image with transparency and optional outlines.
         """
-        overlay = image.copy()
+        import numpy as np
+        import cv2
+
+        output = image.copy()
         masks = self.parent.state_manager.mask_manager.load_masks(self.parent.state_manager.current_image_name)
 
-        mask_layer = np.zeros_like(image, dtype=np.uint8)  
-
         for mask_id, mask, class_name in masks:
+            if mask.shape[0] < 3:
+                continue
 
-            if mask.shape[0] < 3:  
-                print(f"❌ Skipping mask {mask_id} - Invalid shape {mask.shape}")
-                continue  
-
-            # Get the class color
             color = self.parent.state_manager.class_manager.get_class_color(class_name)
             color_bgr = (int(color.red()), int(color.green()), int(color.blue()))
 
-            # Create a temporary layer for each mask
-            temp_layer = np.zeros_like(image, dtype=np.uint8)
+            binary_mask = np.zeros(image.shape[:2], dtype=np.uint8)
+            cv2.fillPoly(binary_mask, [mask.astype(np.int32)], 1)
 
-            # Fill the mask area
-            cv2.fillPoly(temp_layer, [mask.astype(np.int32)], color_bgr)
+            overlay_mask = np.full(image.shape, color_bgr, dtype=np.uint8)
+            indices = binary_mask.astype(bool)
+            output[indices] = cv2.addWeighted(image[indices], 1 - alpha, overlay_mask[indices], alpha, 0)
 
-            # Blend the mask into the mask layer
-            mask_layer = cv2.addWeighted(mask_layer, 1.0, temp_layer, alpha, 0)  
+            cv2.polylines(output, [mask.astype(np.int32)], isClosed=True, color=(0, 0, 0), thickness=outline_thickness)
 
-            # Draw outlines around each mask
-            cv2.polylines(mask_layer, [mask.astype(np.int32)], isClosed=True, color=(0, 0, 0), thickness=outline_thickness)
-
-            # 🔹 Ensure Highlighted Masks Have White Borders
             if str(mask_id) in self.highlighted_mask_ids:
-                cv2.polylines(mask_layer, [mask.astype(np.int32)], isClosed=True, color=(255, 255, 255), thickness=outline_thickness + 2)
+                cv2.polylines(output, [mask.astype(np.int32)], isClosed=True, color=(255, 255, 255), thickness=outline_thickness + 2)
 
-        # Blend the final mask layer with the original image
-        blended_image = cv2.addWeighted(image, 1 - alpha, mask_layer, alpha, 0)
-
-        return blended_image
-
- 
-    def overlay_editing_masks(self, image):
-        """
-        Overlay the currently editing mask on the given image.
-        """
-        if not self.mask_editor or not self.mask_editor.is_editing:
-            return image
-
-        editing_mask = self.mask_editor.get_current_mask()
-        if editing_mask is not None:
-            overlay = image.copy()
-
-            # Draw the mask's outline in red
-            cv2.polylines(overlay, [editing_mask.astype(np.int32)], isClosed=True, color=(255, 0, 0), thickness=2)
-
-            # Highlight the vertices of the mask in blue
-            for vertex in editing_mask:
-                cv2.circle(overlay, (int(vertex[0]), int(vertex[1])), radius=3, color=(0, 0, 255), thickness=-1)
-
-            return overlay
-
-        return image
-
-    def fit_to_view(self):
-        """
-        Fit the entire image to the view.
-        """
-        self.resetTransform()
-        self._zoom_factor = 1.0
-        self.fitInView(self.pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
+        return output
 
     def _update_pixmap(self, image):
         """
-        Update the displayed image in the QGraphicsPixmapItem.
+        Update the displayed pixmap with a new image.
         """
         h, w, ch = image.shape
         q_image = QImage(image.data, w, h, ch * w, QImage.Format.Format_RGB888)
         self.pixmap_item.setPixmap(QPixmap.fromImage(q_image))
 
+    def fit_to_view(self):
+        """
+        Fit the image to the view.
+        """
+        self.resetTransform()
+        self._zoom_factor = 1.0
+        self.fitInView(self.pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
+
+    def refresh_overlay(self, image_name, mask):
+        """
+        Refresh the overlay (e.g., after mask editing).
+        """
+        self.display_image(self.parent.state_manager.current_image_path, preserve_zoom=True)
+
     def set_highlighted_masks(self, selected_rows):
         """
-        Set the highlighted masks based on the selected rows emitted from MaskResultsDialog.
+        Highlight selected masks in the overlay.
         """
-        self.highlighted_mask_ids = [str(row["mask_id"]) for row in selected_rows]  # Ensure all selected IDs are stored as strings
-
-
-        # Redraw the image with the highlighted masks
+        self.highlighted_mask_ids = [str(row["mask_id"]) for row in selected_rows]
         self.display_image(self.parent.state_manager.current_image_path, preserve_zoom=True)
 
     def delete_selected_masks(self):
         """
-        Delete the selected masks from the database and refresh the display.
+        Delete selected masks and refresh view.
         """
         if not self.highlighted_mask_ids:
             print("No masks selected for deletion.")
             return
 
-        image_name = self.parent.state_manager.current_image_name
-        mask_ids_to_delete = [int(mask_id) for mask_id in self.highlighted_mask_ids]  # Convert to int for DB query
+        mask_ids_to_delete = [int(mask_id) for mask_id in self.highlighted_mask_ids]
 
-        if not mask_ids_to_delete:
-            print("No valid mask IDs found for deletion.")
-            return
+        self.parent.state_manager.mask_manager.delete_mask(
+            self.parent.state_manager.current_image_name,
+            mask_ids_to_delete
+        )
 
-        #  Delete masks from the database
-        self.parent.state_manager.mask_manager.delete_mask(image_name, mask_ids_to_delete)
-
-        #  Clear highlighted masks after deletion
         self.highlighted_mask_ids = []
-
-        # Reindex masks after deletion
         self.parent.state_manager.mask_manager.reindex_masks()
 
-        # Refresh the display and results table
         self.display_image(self.parent.state_manager.current_image_path, preserve_zoom=True)
-        self.parent.show_results()  # Refresh the results dialog
+        self.parent.show_results()
+    def wheelEvent(self, event):
+        zoom_in_factor = 1.15  # this factor was from your original refactored version
+        zoom_out_factor = 1 / zoom_in_factor
 
-    def refresh_overlay(self, image_name, mask):
-        """
-        Refresh the image overlay when a new mask is added.
-        """
-        self.display_image(self.parent.state_manager.current_image_path,  preserve_zoom=True)  # Redraw the current image
+        if event.angleDelta().y() > 0:
+            zoom_factor = zoom_in_factor
+        else:
+            zoom_factor = zoom_out_factor
+
+        self.scale(zoom_factor, zoom_factor)
+
+        # Update zoom factor (keeping within limits)
+        self._zoom_factor = max(self._zoom_min, min(self._zoom_max, self._zoom_factor * zoom_factor))
+
+        event.accept()
 
     def keyPressEvent(self, event):
         """
@@ -212,10 +177,13 @@ class ImageDisplay(QGraphicsView):
         if event.key() == Qt.Key.Key_S:
             if self.parent.tool_manager.current_tool:
                 self.parent.tool_manager.current_tool.complete_mask()
-                self.parent.show_results()
-                if hasattr(self.parent, 'results_dialog') and self.parent.results_dialog.isVisible():
-                    self.parent.results_dialog.refresh_table(self.parent.state_manager.current_image_path)
+                # ✅ After saving the mask, update the Annotations table
+                if hasattr(self.parent, 'annotations') and self.parent.annotations.isVisible():
+                    self.parent.annotations.refresh_table(self.parent.state_manager.current_image_path)
 
+                # ✅ After saving the mask, update the Statistics plot
+                if hasattr(self.parent, 'statistics') and self.parent.statistics.isVisible():
+                    self.parent.statistics.refresh_plot()
 
         if event.key() == Qt.Key.Key_E:
             if isinstance(self.parent.tool_manager.current_tool, SamMasker2):
@@ -268,27 +236,26 @@ class ImageDisplay(QGraphicsView):
                 self.display_image(self.parent.state_manager.current_image_path, preserve_zoom=True)
 
                 # Ensure results dialog is open before interacting with the table
-                if not hasattr(self.parent, 'results_dialog') or not self.parent.results_dialog.isVisible():
-                    self.parent.show_results()  # Open the table if it’s not already open
+                if not hasattr(self.parent, 'annotations') or not self.parent.annotations.isVisible():
+                    self.parent.show_results()                    
+                self.parent.annotations.table.setSelectionMode(QTableWidget.SelectionMode.MultiSelection)
 
-                # Set table to allow multiple selections
-                self.parent.results_dialog.table.setSelectionMode(QTableWidget.SelectionMode.MultiSelection)
 
                 selected_rows = []
-                for row in range(self.parent.results_dialog.table.rowCount()):
-                    table_mask_id = self.parent.results_dialog.table.item(row, 1).text()
+                for row in range(self.parent.annotations.table.rowCount()):
+                    table_mask_id = self.parent.annotations.table.item(row, 1).text()
                     if table_mask_id in selected_mask_ids:
-                        self.parent.results_dialog.table.selectRow(row)  # Select multiple rows
+                        self.parent.annotations.table.selectRow(row)  # Select multiple rows
                         selected_rows.append({
-                            "image_name": self.parent.results_dialog.table.item(row, 0).text(),
+                            "image_name": self.parent.annotations.table.item(row, 0).text(),
                             "mask_id": table_mask_id,
-                            "class": self.parent.results_dialog.table.item(row, 3).text(),
+                            "class": self.parent.annotations.table.item(row, 3).text(),
                         })
 
 
                 # Emit selection event to sync mask editor
                 if selected_rows:
-                    self.parent.results_dialog.masks_selected.emit(selected_rows)
+                    self.parent.annotations.masks_selected.emit(selected_rows)
 
             if isinstance(self.parent.tool_manager.current_tool, ManualMask):
                 self.parent.tool_manager.current_tool.add_point(point)
@@ -318,39 +285,43 @@ class ImageDisplay(QGraphicsView):
 
                 self.parent.tool_manager.current_tool.add_point(point, 0)
 
-        elif event.button() == Qt.MouseButton.MiddleButton:
-            # Start panning
+        if event.button() == Qt.MouseButton.MiddleButton:
             self._is_panning = True
             self._pan_start = event.position()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+        else:
+            super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        """
-        Update the live wire dynamically as the cursor moves.
-        """
-        scene_pos = self.mapToScene(event.position().toPoint())
-        point = (int(scene_pos.x()), int(scene_pos.y()))
-
         if self._is_panning:
             delta = event.position() - self._pan_start
             self._pan_start = event.position()
+
             self.horizontalScrollBar().setValue(
                 self.horizontalScrollBar().value() - int(delta.x())
             )
             self.verticalScrollBar().setValue(
                 self.verticalScrollBar().value() - int(delta.y())
             )
-
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
         scene_pos = self.mapToScene(event.position().toPoint())
+        point = (int(scene_pos.x()), int(scene_pos.y()))
+
+
         self.x, self.y = int(scene_pos.x()), int(scene_pos.y())
-        # Update the dynamic path for Intelligent Scissors
-        if isinstance(self.parent.tool_manager.current_tool, IntelligentScissors):
-            if self.parent.tool_manager.current_tool.seed_points:
-                self.parent.tool_manager.current_tool.update_dynamic_path((self.x, self.y))
-        
-        if isinstance(self.parent.tool_manager.current_tool, SamBoxMasker):
-            if self.parent.tool_manager.current_tool.is_drawing_box:
-                self.parent.tool_manager.current_tool.update_box_preview(self.parent.tool_manager.current_tool.box_start, point)
-                print(f"📏 Updating Box: {self.parent.tool_manager.current_tool.box_start} → {point}")
+
+        tool = self.parent.tool_manager.current_tool
+        if isinstance(tool, IntelligentScissors):
+            if tool.seed_points:
+                tool.update_dynamic_path((self.x, self.y))
+
+        if isinstance(tool, SamBoxMasker):
+            if tool.is_drawing_box:
+                tool.update_box_preview(tool.box_start, point)
+                print(f"📏 Updating Box: {tool.box_start} → {point}")
 
     def mouseReleaseEvent(self, event):
         """
@@ -369,7 +340,10 @@ class ImageDisplay(QGraphicsView):
 
         if event.button() == Qt.MouseButton.MiddleButton:
             self._is_panning = False
-
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
     def get_clicked_masks(self, click_point):
         """
         Identify all masks that contain the clicked point.
@@ -389,4 +363,3 @@ class ImageDisplay(QGraphicsView):
                 clicked_masks.append(str(mask_id))  # Convert ID to string for consistency
 
         return clicked_masks
-

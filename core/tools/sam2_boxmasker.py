@@ -228,3 +228,4 @@ class SamBoxMasker(QObject):
         self.box_item = QGraphicsRectItem(rect)
         self.box_item.setPen(pen)
         self.parent.scene.addItem(self.box_item)
+

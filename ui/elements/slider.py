@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import QSlider, QLabel, QVBoxLayout, QWidget
 from PyQt6.QtCore import Qt, QTimer
 
+import os
 
 class ImageSlider(QWidget):
     def __init__(self, parent):
@@ -64,6 +65,11 @@ class ImageSlider(QWidget):
             self.update_label(index)
 
     def update_label(self, index):
-        """Update the slider label based on the current index."""
+        """Update the slider label based on the current index and image name."""
         total_images = len(self.parent.state_manager.image_paths)
-        self.label.setText(f"Image: {index + 1} / {total_images}")
+        if 0 <= index < total_images:
+            image_path = self.parent.state_manager.image_paths[index]
+            image_name = os.path.basename(image_path)
+            self.label.setText(f"Image {index + 1}/{total_images}: {image_name}")
+        else:
+            self.label.setText(f"Image {index + 1}/{total_images}")

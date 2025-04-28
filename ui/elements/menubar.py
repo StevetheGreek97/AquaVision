@@ -31,9 +31,9 @@ class MenuBar(QMenuBar):
 
         actions = [
             ("Load Images", self.parent.load_images),
-            ("Show Results", self.parent.show_results ), #self.parent.toggle_results_dock
+            ("Annotations", self.parent.show_results ), #self.parent.toggle_results_dock
             ("Save Results", None),
-            ("Export Results", self.parent._export_results), 
+            ("Export annotations", self.parent._export_results), 
             ("Exit", self.parent.close),
         ]
 

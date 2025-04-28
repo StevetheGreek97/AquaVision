@@ -1,95 +1,95 @@
-from PyQt6.QtWidgets import QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem, QPushButton, QWidget
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QDockWidget, QVBoxLayout, QWidget, QTableWidget, QTableWidgetItem
+from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtGui import QBrush, QColor
 import cv2
 import numpy as np
-from PyQt6.QtGui import QColor, QBrush
 
-class MaskResultsDialog(QWidget):
-    masks_selected = pyqtSignal(list)  # Signal for mask selection
+class MaskResultsDock(QDockWidget):
+    masks_selected = pyqtSignal(list)
 
     def __init__(self, parent):
-        super().__init__()
+        super().__init__("Annotations", parent)
         self.parent = parent
-        self.setWindowTitle("Mask Results")
-        self.resize(400, 300)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
-        # Main layout
-        layout = QVBoxLayout(self)
+        self.table_widget = QWidget()
+        self.layout = QVBoxLayout(self.table_widget)
+        self.setWidget(self.table_widget)
 
-        # Create table widget
-        self.table = QTableWidget(self)
+        self.table = QTableWidget(self.table_widget)
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["Image Name", "Mask ID", "Surface Area", "Class"])
-        self.table.itemChanged.connect(self.on_item_changed)  # Detect changes in the table
         self.table.setSelectionMode(QTableWidget.SelectionMode.MultiSelection)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        #self.table.setDragEnabled(True)
-        #self.table.setAcceptDrops(True)
-        #self.table.viewport().setAcceptDrops(True)
-        #self.table.setDropIndicatorShown(True)
+        self.table.itemChanged.connect(self.on_item_changed)
+        self.table.itemSelectionChanged.connect(self.on_selection_changed)
 
+        self.layout.addWidget(self.table)
 
-        # Populate the table
-        self.populate_table()
-
-        # Add close button
-        close_button = QPushButton("Close", self)
-        close_button.clicked.connect(self.close)
-
-        # Add widgets to layout
-        layout.addWidget(self.table)
-        layout.addWidget(close_button)
-
-        # Connect image_changed signal to refresh_table
         self.parent.state_manager.image_changed.connect(self.refresh_table)
 
-        self.table.itemSelectionChanged.connect(self.on_selection_changed)
+        # Dock settings
+        self.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
+        self.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable | QDockWidget.DockWidgetFeature.DockWidgetMovable | QDockWidget.DockWidgetFeature.DockWidgetFloatable)
 
     def populate_table(self):
         """
-        Populate the table with mask IDs, surface areas, and class names with respective colors.
+        Populate or refresh the table while keeping selection.
         """
-        self.table.setRowCount(0)  # Clear previous rows
+        selected_ids = self.get_current_selected_ids()
 
-        # Retrieve masks from the database
+        self.table.setRowCount(0)
         masks = self.parent.state_manager.mask_manager.load_masks(self.parent.state_manager.current_image_name)
+        image_name = self.parent.state_manager.current_image_name
 
         for mask_id, mask, class_name in masks:
-            surface_area = cv2.contourArea(mask.astype(np.int32)) if len(mask) > 0 else 0
-
-            # Retrieve the associated color for this mask
+            surface_area = cv2.contourArea(mask.astype(np.int32)) if mask is not None and len(mask) > 0 else 0
             color = self.parent.state_manager.class_manager.get_class_color(class_name)
 
-            # Add row to the table
             row = self.table.rowCount()
             self.table.insertRow(row)
-            self.table.setItem(row, 0, QTableWidgetItem(self.parent.state_manager.current_image_name))  # Image Name
-            self.table.setItem(row, 1, QTableWidgetItem(str(mask_id)))  # Mask ID
-            self.table.setItem(row, 2, QTableWidgetItem(f"{surface_area:.2f}"))  # Surface Area
 
-            # Create a QTableWidgetItem for the class name with the color
-            class_item = QTableWidgetItem(class_name)
-            class_item.setForeground(QBrush(color))
-            class_item.setFlags(class_item.flags() | Qt.ItemFlag.ItemIsEditable)
-            self.table.setItem(row, 3, class_item)  # Class Name
+            self._set_item(row, 0, image_name, editable=False)
+            self._set_item(row, 1, str(mask_id), editable=False)
+            self._set_item(row, 2, f"{surface_area:.2f}", editable=False)
+            self._set_item(row, 3, class_name, editable=True, color=color)
+
+        self.restore_selected_ids(selected_ids)
 
     def refresh_table(self, image_path):
+        self.populate_table()
+
+    def _set_item(self, row, column, text, editable=True, color=None):
+        item = QTableWidgetItem(text)
+        if color:
+            item.setForeground(QBrush(color))
+        if not editable:
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        self.table.setItem(row, column, item)
+
+    def get_current_selected_ids(self):
         """
-        Refresh the table with the masks of the new current image.
+        Save the currently selected mask IDs to restore later.
         """
-        self.populate_table()  # Repopulate the table
-    
+        selected_ids = set()
+        for item in self.table.selectedItems():
+            if item.column() == 1:
+                selected_ids.add(item.text())
+        return selected_ids
+
+    def restore_selected_ids(self, selected_ids):
+        """
+        Reselect the previously selected mask IDs after refresh.
+        """
+        for row in range(self.table.rowCount()):
+            mask_id = self.table.item(row, 1).text()
+            if mask_id in selected_ids:
+                self.table.selectRow(row)
 
     def on_selection_changed(self):
-        """
-        Emit all selected rows as a list of dictionaries and enable mask editing.
-        """
         selected_rows = []
-        selected_mask_ids = []  # To ensure multiple masks are tracked
-
         for item in self.table.selectedItems():
-            if item.column() == 1:  # Mask ID column
+            if item.column() == 1:
                 row = item.row()
                 row_data = {
                     "image_name": self.table.item(row, 0).text(),
@@ -97,23 +97,13 @@ class MaskResultsDialog(QWidget):
                     "class": self.table.item(row, 3).text()
                 }
                 selected_rows.append(row_data)
-                selected_mask_ids.append(row_data["mask_id"])
 
-        print(f"Selected Rows: {selected_rows}")  # Debugging
-
-        # Emit the selected rows
         self.masks_selected.emit(selected_rows)
 
-
     def on_item_changed(self, item):
-        """
-        Handle changes in the class name column and update the corresponding database record.
-        """
         if item.column() == 3:  # Class column
             row = item.row()
             new_class_name = item.text()
-            mask_id = int(self.table.item(row, 1).text())  # Convert mask_id to integer
+            mask_id = int(self.table.item(row, 1).text())
             image_name = self.table.item(row, 0).text()
-
-            # Update class name in the database
             self.parent.state_manager.mask_manager.rename_mask(image_name, mask_id, new_class_name)
