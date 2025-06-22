@@ -25,7 +25,8 @@ class DatabaseConnection:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     image_name TEXT NOT NULL,
                     mask_data BLOB NOT NULL,
-                    class_name TEXT NOT NULL
+                    class_name TEXT NOT NULL,
+                    surface_area REAL
                 )
             """)
 

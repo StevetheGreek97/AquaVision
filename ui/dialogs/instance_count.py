@@ -1,8 +1,8 @@
 import os
 import pyqtgraph as pg
-from PyQt6.QtWidgets import QDockWidget, QVBoxLayout, QWidget
-from PyQt6.QtCore import Qt, QTimer
-import random
+from PyQt6.QtWidgets import QDockWidget, QVBoxLayout, QWidget, QTabWidget
+from PyQt6.QtCore import Qt
+
 
 class MaskStatisticsDock(QDockWidget):
     def __init__(self, parent):
@@ -14,55 +14,69 @@ class MaskStatisticsDock(QDockWidget):
         self.layout = QVBoxLayout(self.widget)
         self.setWidget(self.widget)
 
-        # Setup pyqtgraph PlotWidget
-        self.plot_widget = pg.PlotWidget()
-        self.plot_widget.setBackground('w')  # White background
-        self.layout.addWidget(self.plot_widget)
+        # Tabbed layout
+        self.tabs = QTabWidget()
+        self.layout.addWidget(self.tabs)
 
-        # Customize plot
-        self.plot_widget.showGrid(x=True, y=True)
-        self.plot_widget.setLabel('left', 'Instance Count')
-        self.plot_widget.setLabel('bottom', 'Class Name')
+        # Tab 1: All annotations
+        self.all_plot_widget = pg.PlotWidget()
+        self.all_plot_widget.setBackground('w')
+        self.all_plot_widget.showGrid(x=True, y=True)
+        self.all_plot_widget.setLabel('left', 'Instance Count')
+        self.all_plot_widget.setLabel('bottom', 'Class Name')
+        self.tabs.addTab(self.all_plot_widget, "All Images")
 
-        self.bars = []
-        self.class_names = []
-        self.counts = []
-
-
+        # Tab 2: Current image annotations
+        self.current_plot_widget = pg.PlotWidget()
+        self.current_plot_widget.setBackground('w')
+        self.current_plot_widget.showGrid(x=True, y=True)
+        self.current_plot_widget.setLabel('left', 'Instance Count')
+        self.current_plot_widget.setLabel('bottom', 'Class Name')
+        self.tabs.addTab(self.current_plot_widget, "Current Image")
 
         self.refresh_plot()
 
     def refresh_plot(self):
         """
-        Refresh the bar plot using class colors from the database.
+        Refresh both the 'All Images' and 'Current Image' tabs.
         """
-        self.plot_widget.clear()
-        self.bars = []
-        self.class_names = []
-        self.counts = []
+        self._refresh_tab(
+            self.all_plot_widget,
+            query="SELECT class_name, COUNT(*) FROM masks GROUP BY class_name"
+        )
+
+        current_image = self.parent.state_manager.current_image_name
+        if current_image:
+            self._refresh_tab(
+                self.current_plot_widget,
+                query="SELECT class_name, COUNT(*) FROM masks WHERE image_name = ? GROUP BY class_name",
+                params=(current_image,)
+            )
+        else:
+            self.current_plot_widget.clear()
+
+    def _refresh_tab(self, plot_widget, query, params=()):
+        """
+        Helper to populate a given plot with annotation statistics.
+        """
+        plot_widget.clear()
 
         try:
-            query = "SELECT class_name, COUNT(*) FROM masks GROUP BY class_name"
-            results = self.parent.state_manager.mask_manager.db.fetch_all(query)
+            results = self.parent.state_manager.mask_manager.db.fetch_all(query, params)
+            if not results:
+                return
 
-            if results:
-                self.class_names = [row[0] for row in results]
-                self.counts = [row[1] for row in results]
+            class_names = [row[0] for row in results]
+            counts = [row[1] for row in results]
+            x = list(range(len(class_names)))
 
-                x = list(range(len(self.class_names)))
+            for i, (cls, cnt) in enumerate(zip(class_names, counts)):
+                qcolor = self.parent.state_manager.class_manager.get_class_color(cls)
+                brush_color = pg.mkBrush(qcolor.red(), qcolor.green(), qcolor.blue())
+                bar = pg.BarGraphItem(x=[i], height=[cnt], width=0.6, brush=brush_color)
+                plot_widget.addItem(bar)
 
-                for i, (cls, cnt) in enumerate(zip(self.class_names, self.counts)):
-                    # ✅ Fetch the real color from the class database
-                    qcolor = self.parent.state_manager.class_manager.get_class_color(cls)
-                    brush_color = pg.mkBrush(qcolor.red(), qcolor.green(), qcolor.blue())
-
-                    bar = pg.BarGraphItem(x=[i], height=[cnt], width=0.6, brush=brush_color)
-                    self.plot_widget.addItem(bar)
-                    self.bars.append((bar, cls, cnt))
-
-                # X Axis Labels
-                axis = self.plot_widget.getAxis('bottom')
-                axis.setTicks([[(i, name) for i, name in enumerate(self.class_names)]])
-
+            axis = plot_widget.getAxis('bottom')
+            axis.setTicks([[(i, name) for i, name in enumerate(class_names)]])
         except Exception as e:
-            print(f"❌ Error fetching mask statistics: {e}")
+            print(f"❌ Error fetching statistics: {e}")

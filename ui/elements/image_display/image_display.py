@@ -48,13 +48,11 @@ class ImageDisplay(QGraphicsView):
 
     def display_image(self, image_path, preserve_zoom=False):
         """
-        Load and display the image along with overlays.
+        Load and display the image and apply base mask overlay only once.
         """
         if not image_path:
             print("No image path provided.")
             return
-
-        import cv2
 
         image = cv2.imread(image_path)
         if image is None:
@@ -64,8 +62,9 @@ class ImageDisplay(QGraphicsView):
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         self.parent.state_manager.current_image = image
 
-        image = self.overlay_masks(image)
-        self._update_pixmap(image)
+        # Render and cache the base image with filled masks and black outlines
+        self.cached_image_with_masks = self.overlay_base_masks(image)
+        self._update_pixmap(self.cached_image_with_masks.copy())
 
         if not preserve_zoom:
             self.resetTransform()
@@ -73,37 +72,68 @@ class ImageDisplay(QGraphicsView):
             self.scene.setSceneRect(self.pixmap_item.boundingRect())
             self.fitInView(self.pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
 
-
-    def overlay_masks(self, image, alpha=0.4, outline_thickness=1):
+    def overlay_base_masks(self, image, alpha=0.4, outline_thickness=1):
         """
-        Overlay all masks onto the image with transparency and optional outlines.
+        Render all masks onto a copy of the image without highlighting.
         """
-        import numpy as np
-        import cv2
-
         output = image.copy()
-        masks = self.parent.state_manager.mask_manager.load_masks(self.parent.state_manager.current_image_name)
+        masks = self.parent.state_manager.mask_manager.load_masks(
+            self.parent.state_manager.current_image_name
+        )
 
-        for mask_id, mask, class_name in masks:
+        for _, mask, class_name, _ in masks:
             if mask.shape[0] < 3:
                 continue
 
+            mask_pts = mask.astype(np.int32)
             color = self.parent.state_manager.class_manager.get_class_color(class_name)
             color_bgr = (int(color.red()), int(color.green()), int(color.blue()))
 
             binary_mask = np.zeros(image.shape[:2], dtype=np.uint8)
-            cv2.fillPoly(binary_mask, [mask.astype(np.int32)], 1)
+            cv2.fillPoly(binary_mask, [mask_pts], 1)
+            overlay = np.full(image.shape, color_bgr, dtype=np.uint8)
+            output[binary_mask.astype(bool)] = cv2.addWeighted(
+                image[binary_mask.astype(bool)],
+                1 - alpha,
+                overlay[binary_mask.astype(bool)],
+                alpha,
+                0
+            )
 
-            overlay_mask = np.full(image.shape, color_bgr, dtype=np.uint8)
-            indices = binary_mask.astype(bool)
-            output[indices] = cv2.addWeighted(image[indices], 1 - alpha, overlay_mask[indices], alpha, 0)
-
-            cv2.polylines(output, [mask.astype(np.int32)], isClosed=True, color=(0, 0, 0), thickness=outline_thickness)
-
-            if str(mask_id) in self.highlighted_mask_ids:
-                cv2.polylines(output, [mask.astype(np.int32)], isClosed=True, color=(255, 255, 255), thickness=outline_thickness + 2)
+            cv2.polylines(output, [mask_pts], isClosed=True, color=(0, 0, 0), thickness=outline_thickness)
 
         return output
+
+    def highlight_selected_masks(self, mask_ids):
+        """
+        Overlay highlights (white outlines) on top of cached base mask image.
+        """
+        image = self.cached_image_with_masks.copy()
+        masks = self.parent.state_manager.mask_manager.load_masks(self.parent.state_manager.current_image_name)
+
+        for mask_id, mask, *_ in masks:
+            if str(mask_id) in mask_ids:
+                if mask.shape[0] < 3:
+                    continue
+                mask_pts = mask.astype(np.int32)
+                cv2.polylines(image, [mask_pts], isClosed=True, color=(255, 255, 255), thickness=2)
+
+        self._update_pixmap(image)
+
+    def set_highlighted_masks(self, selected_rows):
+        """
+        Sync selected rows from the table and highlight all of them.
+        """
+        # 🧠 Instead of trusting the input list blindly, re-read all selected rows
+        selected_ids = []
+        for item in self.parent.annotations.table.selectedItems():
+            if item.column() == 1:  # Mask ID column
+                selected_ids.append(item.text())
+
+        self.highlighted_mask_ids = selected_ids
+        self.highlight_selected_masks(self.highlighted_mask_ids)
+
+
 
     def _update_pixmap(self, image):
         """
@@ -127,12 +157,6 @@ class ImageDisplay(QGraphicsView):
         """
         self.display_image(self.parent.state_manager.current_image_path, preserve_zoom=True)
 
-    def set_highlighted_masks(self, selected_rows):
-        """
-        Highlight selected masks in the overlay.
-        """
-        self.highlighted_mask_ids = [str(row["mask_id"]) for row in selected_rows]
-        self.display_image(self.parent.state_manager.current_image_path, preserve_zoom=True)
 
     def delete_selected_masks(self):
         """
@@ -218,74 +242,64 @@ class ImageDisplay(QGraphicsView):
         if event.button() == Qt.MouseButton.LeftButton:
             scene_pos = self.mapToScene(event.position().toPoint())
             point = (int(scene_pos.x()), int(scene_pos.y()))
-            # Get all masks that contain the clicked point
-            selected_mask_ids = self.get_clicked_masks(point)
-
-            # Get all masks that contain the clicked point
             selected_mask_ids = self.get_clicked_masks(point)
 
             if selected_mask_ids:
-                print(f"Clicked on masks: {selected_mask_ids}")  # Debugging output
+                print(f"Clicked on masks: {selected_mask_ids}")
 
-                # Ensure all masks are highlighted
+                # Update highlight list (avoid duplicates)
                 for mask_id in selected_mask_ids:
                     if mask_id not in self.highlighted_mask_ids:
-                        self.highlighted_mask_ids.append(mask_id)  # Add if not already selected
+                        self.highlighted_mask_ids.append(mask_id)
 
-                # Refresh display with the selected masks highlighted
-                self.display_image(self.parent.state_manager.current_image_path, preserve_zoom=True)
+                # ✅ FAST update (no full image redraw)
+                self.highlight_selected_masks(self.highlighted_mask_ids)
 
-                # Ensure results dialog is open before interacting with the table
+                # Ensure results dialog is open
                 if not hasattr(self.parent, 'annotations') or not self.parent.annotations.isVisible():
-                    self.parent.show_results()                    
+                    self.parent.show_results()
+
                 self.parent.annotations.table.setSelectionMode(QTableWidget.SelectionMode.MultiSelection)
 
-
+                # Select rows in the annotations table
                 selected_rows = []
                 for row in range(self.parent.annotations.table.rowCount()):
                     table_mask_id = self.parent.annotations.table.item(row, 1).text()
                     if table_mask_id in selected_mask_ids:
-                        self.parent.annotations.table.selectRow(row)  # Select multiple rows
+                        self.parent.annotations.table.selectRow(row)
                         selected_rows.append({
                             "image_name": self.parent.annotations.table.item(row, 0).text(),
                             "mask_id": table_mask_id,
                             "class": self.parent.annotations.table.item(row, 3).text(),
                         })
 
-
-                # Emit selection event to sync mask editor
                 if selected_rows:
                     self.parent.annotations.masks_selected.emit(selected_rows)
 
-            if isinstance(self.parent.tool_manager.current_tool, ManualMask):
-                self.parent.tool_manager.current_tool.add_point(point)
-
-            if isinstance(self.parent.tool_manager.current_tool, DEXTRMasker):
-                self.parent.tool_manager.current_tool.add_point(point)
-
-            if isinstance(self.parent.tool_manager.current_tool, SamMasker2):
-                self.parent.tool_manager.current_tool.add_point(point, 1)
-
-            if isinstance(self.parent.tool_manager.current_tool, IntelligentScissors):
-                self.parent.tool_manager.current_tool.add_seed_point(point)
-
-            if isinstance(self.parent.tool_manager.current_tool, SamBoxMasker):
-                self.parent.tool_manager.current_tool.box_start = point  
-                self.parent.tool_manager.current_tool.is_drawing_box = True 
+            tool = self.parent.tool_manager.current_tool
+            if isinstance(tool, ManualMask):
+                tool.add_point(point)
+            elif isinstance(tool, DEXTRMasker):
+                tool.add_point(point)
+            elif isinstance(tool, SamMasker2):
+                tool.add_point(point, 1)
+            elif isinstance(tool, IntelligentScissors):
+                tool.add_seed_point(point)
+            elif isinstance(tool, SamBoxMasker):
+                tool.box_start = point
+                tool.is_drawing_box = True
                 print(f"📏 Started Box at {point}")
 
         elif event.button() == Qt.MouseButton.RightButton:
-            if isinstance(self.parent.tool_manager.current_tool, ManualMask):
-                self.parent.tool_manager.current_tool.pop_last_point()
-
-            if isinstance(self.parent.tool_manager.current_tool, SamMasker2):
+            tool = self.parent.tool_manager.current_tool
+            if isinstance(tool, ManualMask):
+                tool.pop_last_point()
+            elif isinstance(tool, SamMasker2):
                 scene_pos = self.mapToScene(event.position().toPoint())
                 point = (int(scene_pos.x()), int(scene_pos.y()))
+                tool.add_point(point, 0)
 
-
-                self.parent.tool_manager.current_tool.add_point(point, 0)
-
-        if event.button() == Qt.MouseButton.MiddleButton:
+        elif event.button() == Qt.MouseButton.MiddleButton:
             self._is_panning = True
             self._pan_start = event.position()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
@@ -357,7 +371,7 @@ class ImageDisplay(QGraphicsView):
         masks = self.parent.state_manager.mask_manager.load_masks(self.parent.state_manager.current_image_name)
         clicked_masks = []
 
-        for mask_id, mask, class_name in masks:
+        for mask_id, mask, class_name, _ in masks:
             # Check if the clicked point is inside the mask polygon
             if cv2.pointPolygonTest(mask.astype(np.int32), click_point, measureDist=False) >= 0:
                 clicked_masks.append(str(mask_id))  # Convert ID to string for consistency

@@ -178,6 +178,7 @@ class MainApp(QMainWindow):
         if not hasattr(self, 'statistics') or self.statistics is None:
             self.statistics = MaskStatisticsDock(self)
             self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.statistics)
+            self.state_manager.image_changed.connect(self.statistics.refresh_plot)
         
         print("Refreshing results and statistics...")
         self.annotations.refresh_table(current_image_path)

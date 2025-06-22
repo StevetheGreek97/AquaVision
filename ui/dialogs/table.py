@@ -42,8 +42,8 @@ class MaskResultsDock(QDockWidget):
         masks = self.parent.state_manager.mask_manager.load_masks(self.parent.state_manager.current_image_name)
         image_name = self.parent.state_manager.current_image_name
 
-        for mask_id, mask, class_name in masks:
-            surface_area = cv2.contourArea(mask.astype(np.int32)) if mask is not None and len(mask) > 0 else 0
+        for mask_id, mask, class_name, surface_area in masks:
+            
             color = self.parent.state_manager.class_manager.get_class_color(class_name)
 
             row = self.table.rowCount()
@@ -51,7 +51,7 @@ class MaskResultsDock(QDockWidget):
 
             self._set_item(row, 0, image_name, editable=False)
             self._set_item(row, 1, str(mask_id), editable=False)
-            self._set_item(row, 2, f"{surface_area:.2f}", editable=False)
+            self._set_item(row, 2, f"{surface_area:.2f}" if surface_area else "0.00", editable=False)
             self._set_item(row, 3, class_name, editable=True, color=color)
 
         self.restore_selected_ids(selected_ids)

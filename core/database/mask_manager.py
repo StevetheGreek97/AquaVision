@@ -1,4 +1,5 @@
 import numpy as np
+import cv2
 
 class MaskDatabaseManager:
     """
@@ -23,10 +24,11 @@ class MaskDatabaseManager:
         Returns:
             int: ID of the newly saved mask.
         """
+        surface_area = cv2.contourArea(mask.astype(np.int32))
         mask_bytes = mask.tobytes()  # Convert NumPy array to bytes
         self.db.execute_query(
-            "INSERT INTO masks (image_name, mask_data, class_name) VALUES (?, ?, ?)",
-            (image_name, mask_bytes, class_name)
+            "INSERT INTO masks (image_name, mask_data, class_name, surface_area) VALUES (?, ?, ?, ?)",
+            (image_name, mask_bytes, class_name, surface_area)
         )
 
     def load_masks(self, image_name):
@@ -34,21 +36,18 @@ class MaskDatabaseManager:
         Load all masks for a given image.
 
         Returns:
-            list of tuples: (id, mask, class_name)
+            list of tuples: (id, mask, class_name, surface_area)
         """
-        rows = self.db.fetch_all("SELECT id, mask_data, class_name FROM masks WHERE image_name = ?", (image_name,))
+        rows = self.db.fetch_all("SELECT id, mask_data, class_name, surface_area FROM masks WHERE image_name = ?", (image_name,))
         
         masks = []
         for row in rows:
-            mask_id, mask_data, class_name = row
-            mask_array = np.frombuffer(mask_data, dtype=np.float32).reshape(-1, 2)  # Convert back to (N,2)
-            
-            if mask_array.shape[0] < 3:  # Debugging invalid masks
-                print(f"❌ Warning: Mask {mask_id} has an invalid shape: {mask_array.shape}")
-
-            masks.append((mask_id, mask_array, class_name))
+            mask_id, mask_data, class_name, surface_area = row
+            mask_array = np.frombuffer(mask_data, dtype=np.float32).reshape(-1, 2)
+            masks.append((mask_id, mask_array, class_name, surface_area))
 
         return masks
+
 
 
     def clear_all_masks(self):
