@@ -66,6 +66,8 @@ class StateManager(QObject):
         """
         self.image_paths = image_paths
         self.image_index = 0 if image_paths else -1  # Reset to the first image if the list is not empty
+        if self.current_image_name:
+            self.mask_manager.load_masks(self.current_image_name)
 
     @property
     def current_image_path(self):
@@ -121,6 +123,9 @@ class StateManager(QObject):
         """
         if self.image_index < len(self.image_paths) - 1:
             self.image_index += 1
+            # Preload masks for the upcoming image
+            if self.current_image_name:
+                self.mask_manager.load_masks(self.current_image_name)
             self.image_changed.emit(self.current_image_path)  # Emit signal
             return self.current_image_path
         return None
@@ -134,6 +139,8 @@ class StateManager(QObject):
         """
         if self.image_index > 0:
             self.image_index -= 1
+            if self.current_image_name:
+                self.mask_manager.load_masks(self.current_image_name)
             self.image_changed.emit(self.current_image_path)  # Emit signal
             return self.current_image_path
         return None
@@ -144,7 +151,7 @@ class StateManager(QObject):
         """
         self.image_index = -1
         self.image_paths = []
-        self.masks.clear()
-        self.colors.clear()
+        # Clear any cached masks from the mask manager
+        self.mask_manager.cache.clear()
 
 

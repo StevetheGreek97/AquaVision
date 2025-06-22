@@ -10,6 +10,8 @@ class MaskDatabaseManager:
         Initialize with a shared database connection.
         """
         self.db = db_connection  # ✅ Shared DatabaseConnection instance
+        # Cache masks per image to avoid repeated database queries
+        self.cache = {}
 
     def save_mask(self, mask, image_name, class_name="Object"):
         """
@@ -28,6 +30,8 @@ class MaskDatabaseManager:
             "INSERT INTO masks (image_name, mask_data, class_name) VALUES (?, ?, ?)",
             (image_name, mask_bytes, class_name)
         )
+        # Invalidate cache for this image so subsequent loads include the new mask
+        self.cache.pop(image_name, None)
 
     def load_masks(self, image_name):
         """
@@ -36,18 +40,27 @@ class MaskDatabaseManager:
         Returns:
             list of tuples: (id, mask, class_name)
         """
-        rows = self.db.fetch_all("SELECT id, mask_data, class_name FROM masks WHERE image_name = ?", (image_name,))
-        
+        if image_name in self.cache:
+            return self.cache[image_name]
+
+        rows = self.db.fetch_all(
+            "SELECT id, mask_data, class_name FROM masks WHERE image_name = ?",
+            (image_name,),
+        )
+
         masks = []
         for row in rows:
             mask_id, mask_data, class_name = row
-            mask_array = np.frombuffer(mask_data, dtype=np.float32).reshape(-1, 2)  # Convert back to (N,2)
-            
-            if mask_array.shape[0] < 3:  # Debugging invalid masks
-                print(f"❌ Warning: Mask {mask_id} has an invalid shape: {mask_array.shape}")
+            mask_array = np.frombuffer(mask_data, dtype=np.float32).reshape(-1, 2)
+
+            if mask_array.shape[0] < 3:
+                print(
+                    f"❌ Warning: Mask {mask_id} has an invalid shape: {mask_array.shape}"
+                )
 
             masks.append((mask_id, mask_array, class_name))
 
+        self.cache[image_name] = masks
         return masks
 
 
@@ -56,6 +69,7 @@ class MaskDatabaseManager:
         Delete all masks from the database.
         """
         self.db.execute_query("DELETE FROM masks")
+        self.cache.clear()
 
     def rename_mask(self, image_name, mask_id, new_class_name):
         """
@@ -70,6 +84,7 @@ class MaskDatabaseManager:
             "UPDATE masks SET class_name = ? WHERE image_name = ? AND id = ?",
             (new_class_name, image_name, mask_id)
         )
+        self.cache.pop(image_name, None)
     def reindex_masks(self):
         """
         Reindex mask IDs to remove gaps after deletions.
@@ -92,6 +107,7 @@ class MaskDatabaseManager:
         self.db.execute_query("PRAGMA foreign_keys = ON;")  # Re-enable foreign key constraints
 
         print("✅ Mask IDs successfully reindexed!")
+        self.cache.clear()
 
     def delete_mask(self, image_name, mask_ids):
         """
@@ -110,6 +126,7 @@ class MaskDatabaseManager:
         self.db.execute_query(query, [image_name] + mask_ids)
 
         print(f"✅ Deleted mask(s) with ID(s): {mask_ids} from image: {image_name}")
+        self.cache.pop(image_name, None)
 
     def delete_masks_by_class(self, class_name):
         """
@@ -117,6 +134,7 @@ class MaskDatabaseManager:
         """
         self.db.execute_query("DELETE FROM masks WHERE class_name = ?", (class_name,))
         print(f"🗑 Deleted all masks with class name: {class_name}")
+        self.cache.clear()
 
     def count_masks_by_class(self, class_name):
         """

@@ -188,7 +188,9 @@ class ImageController(QObject):
         return False
 
     def get_clicked_masks(self, click_point):
-        masks = self.parent.state_manager.mask_manager.load_masks(self.parent.state_manager.current_image_name)
+        masks = self.parent.state_manager.mask_manager.load_masks(
+            self.parent.state_manager.current_image_name
+        )
         clicked_masks = []
         for mask_id, mask, class_name in masks:
             if mask is not None and mask.shape[0] >= 3:

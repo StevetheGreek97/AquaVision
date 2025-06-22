@@ -39,7 +39,9 @@ class MaskResultsDock(QDockWidget):
         selected_ids = self.get_current_selected_ids()
 
         self.table.setRowCount(0)
-        masks = self.parent.state_manager.mask_manager.load_masks(self.parent.state_manager.current_image_name)
+        masks = self.parent.state_manager.mask_manager.load_masks(
+            self.parent.state_manager.current_image_name
+        )
         image_name = self.parent.state_manager.current_image_name
 
         for mask_id, mask, class_name in masks:

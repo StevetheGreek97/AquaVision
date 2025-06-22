@@ -82,7 +82,9 @@ class ImageDisplay(QGraphicsView):
         import cv2
 
         output = image.copy()
-        masks = self.parent.state_manager.mask_manager.load_masks(self.parent.state_manager.current_image_name)
+        masks = self.parent.state_manager.mask_manager.load_masks(
+            self.parent.state_manager.current_image_name
+        )
 
         for mask_id, mask, class_name in masks:
             if mask.shape[0] < 3:
@@ -354,7 +356,9 @@ class ImageDisplay(QGraphicsView):
         Returns:
             list: A list of mask IDs that contain the clicked point.
         """
-        masks = self.parent.state_manager.mask_manager.load_masks(self.parent.state_manager.current_image_name)
+        masks = self.parent.state_manager.mask_manager.load_masks(
+            self.parent.state_manager.current_image_name
+        )
         clicked_masks = []
 
         for mask_id, mask, class_name in masks:
