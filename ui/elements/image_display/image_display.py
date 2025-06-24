@@ -157,10 +157,23 @@ class ImageDisplay(QGraphicsView):
         """
         self.display_image(self.parent.state_manager.current_image_path, preserve_zoom=True)
 
+    def refresh_masks(self):
+        """
+        Refresh the cached mask overlay and reapply mask highlights.
+        Keeps zoom and pan unchanged.
+        """
+        if self.parent.state_manager.current_image is None:
+            return
+
+        self.cached_image_with_masks = self.overlay_base_masks(self.parent.state_manager.current_image)
+        self._update_pixmap(self.cached_image_with_masks.copy())
+
+        if self.highlighted_mask_ids:
+            self.highlight_selected_masks(self.highlighted_mask_ids)
 
     def delete_selected_masks(self):
         """
-        Delete selected masks and refresh view.
+        Delete selected masks and refresh the overlay.
         """
         if not self.highlighted_mask_ids:
             print("No masks selected for deletion.")
@@ -172,12 +185,11 @@ class ImageDisplay(QGraphicsView):
             self.parent.state_manager.current_image_name,
             mask_ids_to_delete
         )
-
+        self.parent.annotations.table.clearSelection()
         self.highlighted_mask_ids = []
-        self.parent.state_manager.mask_manager.reindex_masks()
+        self.refresh_masks()
 
-        self.display_image(self.parent.state_manager.current_image_path, preserve_zoom=True)
-        self.parent.show_results()
+
     def wheelEvent(self, event):
         zoom_in_factor = 1.15  # this factor was from your original refactored version
         zoom_out_factor = 1 / zoom_in_factor
@@ -377,3 +389,4 @@ class ImageDisplay(QGraphicsView):
                 clicked_masks.append(str(mask_id))  # Convert ID to string for consistency
 
         return clicked_masks
+        

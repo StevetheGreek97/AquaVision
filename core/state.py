@@ -4,17 +4,19 @@ from core.database.connection import DatabaseConnection
 from core.database.mask_manager import MaskDatabaseManager
 from PyQt6.QtGui import QColor
 from PyQt6.QtCore import QObject, pyqtSignal
+
+
 class StateManager(QObject):
     image_changed = pyqtSignal(str)
     """
     Manages the application state including the current image index, path, and associated masks and colors.
     """
 
-    def __init__(self):
+    def __init__(self, db_path):
         super().__init__()  # Initialize the QObject base class
 
         # Shared Database Connection
-        self.db = DatabaseConnection()
+        self.db = DatabaseConnection(db_path)
 
         # db  Managers
         self.class_manager = ClassDatabaseManager(self.db)

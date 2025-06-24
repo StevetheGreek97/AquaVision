@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QMainWindow, QWidget, QFileDialog, QHBoxLayout,QApplication, QVBoxLayout, QDockWidget
+from PyQt6.QtWidgets import QMainWindow, QWidget, QFileDialog, QHBoxLayout,QApplication, QVBoxLayout, QMessageBox
 from PyQt6.QtCore import Qt, QEvent, pyqtSignal
 from ui.elements.image_display.image_display import ImageDisplay
 from ui.elements.menubar import MenuBar
@@ -8,13 +8,14 @@ from ui.dialogs.table import MaskResultsDock
 from ui.dialogs.instance_count import MaskStatisticsDock
 from ui.elements.slider import ImageSlider
 import os
+from core.config import ProjectConfigManager
 from PyQt6.QtGui import QIcon 
 from core.state import StateManager  
 from core.inference_manager import  InferenceManager
 from core.exporters.yolo_exporter import YOLOExporter
 from core.managers.tool_manager import ToolManager
 from core.tools.auto_sam2 import Sam2Auto
-
+import shutil
 from services.file_handlers import loader, get_resource_path
 from services.logger import logger, log_memory_usage
 
@@ -25,21 +26,21 @@ class MainApp(QMainWindow):
     Main application window.
     """
 
-    def __init__(self):
+    def __init__(self, db_path="masks.db"):
         super().__init__()
-        self.setWindowTitle("AquaVision")
+        self.setWindowTitle("SegmentME")
         self.resize(1000, 600)
 
-        icon_path = get_resource_path("resources/icons/icon.ico")
+        icon_path = get_resource_path("resources/icons/desktop.png")
         self.setWindowIcon(QIcon(icon_path))
         #self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         self.models_dir = get_resource_path("models/yolo")
         self.sam_dir = get_resource_path("models/sam")
         self.current_model_path = None
-
         # Initialize StateManager
-        self.state_manager = StateManager()
+    
+        self.state_manager = StateManager(db_path=db_path)
 
         # Initialize InferenceManager
         self.inference_manager = None
@@ -76,26 +77,29 @@ class MainApp(QMainWindow):
         QApplication.instance().installEventFilter(self)
 
 
-    def load_images(self):
-        """
-        Open a directory dialog to select a folder and load all images within it.
-        """
-        folder_path = QFileDialog.getExistingDirectory(self, "Select Image Folder")
-        image_paths = loader(folder_path)
-        #print(image_paths)
-            
-        if image_paths:
-            self.state_manager.set_image_paths(image_paths)
-            current_image_path = self.state_manager.current_image_path
-            
-            if current_image_path:
-                print(f"Displaying initial image from folder: {current_image_path}")  # Debug
-                self.slider.set_image_count(len(image_paths)) 
-                self.image_display.display_image(current_image_path)
-                #print(self.state_manager.current_masks)
+    def import_images(self):
+        files, _ = QFileDialog.getOpenFileNames(self, "Select Images to Import", filter="Images (*.png *.jpg *.jpeg *.bmp *.tif)")
+        if not files:
+            return
 
-        else:
-            logger.info("No valid images found in the selected folder.")
+        images_dir = self.config.get_images_dir()
+        os.makedirs(images_dir, exist_ok=True)
+
+        imported_count = 0
+        for file in files:
+            fname = os.path.basename(file)
+            dest = os.path.join(images_dir, fname)
+            if not os.path.exists(dest):
+                shutil.copy(file, dest)
+                imported_count += 1
+
+        image_paths = loader(images_dir)
+        self.state_manager.set_image_paths(image_paths)
+        self.slider.set_image_count(len(image_paths))
+        self.image_display.display_image(self.state_manager.current_image_path)
+
+        QMessageBox.information(self, "Import Complete", f"✅ Imported {imported_count} images into your project.")
+
 
     def next_image(self):
         """
@@ -144,6 +148,9 @@ class MainApp(QMainWindow):
 
         dialog = InferenceDialog(dir, self)
         if dialog.exec():
+
+
+            threshold = dialog.get_threshold()
             selected_model = dialog.get_selected_model()
             print(f"Selected Model: {selected_model}")  # Debug
 
@@ -155,11 +162,14 @@ class MainApp(QMainWindow):
                 if self.inference_manager:
                     self.inference_manager.stop_inference()
 
-                # Initialize and start the inference
+               
+
+              
+                                # Initialize and start the inference
                 self.inference_manager = InferenceManager(self, mode, display_text)
                 self.inference_manager.run_inference(
-                    self.current_model_path, self.state_manager.image_paths
-                )
+                    self.current_model_path, self.state_manager.image_paths, threshold
+                )      
 
     def closeEvent(self, event):
         if hasattr(self, 'export_thread') and self.export_thread.isRunning():
@@ -229,3 +239,35 @@ class MainApp(QMainWindow):
 #            self.results_dock.raise_()  # Bring it to front if it's hidden behind something
 #        else:
 #            self.results_dock.hide()
+
+
+
+
+    def initialize_project(self, db_path):
+        self.project_root = os.path.dirname(os.path.dirname(db_path))  # .aquavision/masks.db → project/
+        self.config = ProjectConfigManager(self.project_root)
+
+        # Load image paths from config
+        images_dir = self.config.get_images_dir()
+
+        if not os.path.exists(images_dir):
+            reply = QMessageBox.question(self, "Images Folder Not Found",
+                                        f"The folder '{images_dir}' does not exist.\nWould you like to locate it?",
+                                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if reply == QMessageBox.StandardButton.Yes:
+                folder = QFileDialog.getExistingDirectory(self, "Locate Images Folder")
+                if folder:
+                    relative = os.path.relpath(folder, self.project_root)
+                    self.config.set_images_dir(relative)
+                    images_dir = folder
+                else:
+                    return  # User canceled
+
+        image_paths = loader(images_dir)
+        if image_paths:
+            self.state_manager.set_image_paths(image_paths)
+            self.slider.set_image_count(len(image_paths))
+            self.image_display.display_image(self.state_manager.current_image_path)
+        else:
+            QMessageBox.information(self, "No Images", "No images found in the selected folder.")
+

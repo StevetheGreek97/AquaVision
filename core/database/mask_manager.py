@@ -107,6 +107,7 @@ class MaskDatabaseManager:
         query = f"DELETE FROM masks WHERE image_name = ? AND id IN ({placeholders})"
 
         self.db.execute_query(query, [image_name] + mask_ids)
+        self.reindex_masks()
 
         print(f"✅ Deleted mask(s) with ID(s): {mask_ids} from image: {image_name}")
 

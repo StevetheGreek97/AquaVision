@@ -15,7 +15,8 @@ class InferenceManager(QObject):
         self.progress_manager = None
         self.inference_thread = None
 
-    def run_inference(self, model_path, image_files):
+
+    def run_inference(self, model_path, image_files, conf):
         """
         Start the inference process with the provided model and images.
         """
@@ -24,7 +25,7 @@ class InferenceManager(QObject):
             return
 
         # Initialize the inference thread
-        self.inference_thread = InferenceThread(model_path, image_files, mode=self.mode)
+        self.inference_thread = InferenceThread(model_path, image_files, mode=self.mode, conf=conf)
         self.inference_thread.inference_completed.connect(self.on_inference_progress)
         self.inference_thread.finished.connect(self.finalize_progress)
 

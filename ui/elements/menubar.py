@@ -30,7 +30,7 @@ class MenuBar(QMenuBar):
         file_menu = self.addMenu("File")
 
         actions = [
-            ("Load Images", self.parent.load_images),
+            ("Import Images", self.parent.import_images),
             ("Annotations", self.parent.show_results ), #self.parent.toggle_results_dock
             ("Save Results", None),
             ("Export annotations", self.parent._export_results), 

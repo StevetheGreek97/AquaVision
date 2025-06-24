@@ -1,10 +1,9 @@
 import os
 import cv2
 import numpy as np
-import yaml
+from shapely.geometry import Polygon
 from services.file_handlers import normalize_coordinates, write_annotations_to_file
 from core.exporters.base_exporter import BaseExporter
-from shapely.geometry import Polygon
 
 
 class YOLOExporter(BaseExporter):
@@ -20,8 +19,8 @@ class YOLOExporter(BaseExporter):
             print("❌ No images loaded to export annotations.")
             return
 
-        if not self.select_export_directory():
-            return  # User canceled the selection
+        # ✅ Use timestamped export path inside project/annotations/
+        self.set_export_dir_with_timestamp()
 
         progress_dialog = self._show_progress_dialog(len(self.parent.state_manager.image_paths))
 
@@ -55,18 +54,14 @@ class YOLOExporter(BaseExporter):
         image = self._load_image(image_path)
         img_height, img_width, _ = image.shape
 
+
         yolo_annotations = self._convert_masks_to_yolo(masks, class_ids, img_width, img_height)
+
         write_annotations_to_file(image_name, yolo_annotations, self.annotations_dir)
 
     def fetch_image_masks_from_db(self, image_name):
         """
         Fetch all masks and their corresponding class IDs for a given image from the database.
-
-        Args:
-            image_name (str): The name of the image to retrieve masks for.
-
-        Returns:
-            tuple: (list of mask arrays, list of corresponding class IDs)
         """
         db_masks = self.parent.state_manager.mask_manager.load_masks(image_name)
 
@@ -74,9 +69,8 @@ class YOLOExporter(BaseExporter):
             return [], []
 
         masks, class_ids = [], []
-        for mask_id, mask_array, class_name in db_masks:
+        for mask_id, mask_array, class_name, _ in db_masks:
             class_id = self.parent.state_manager.class_manager.get_idx_by_name(class_name)
-
             if class_id is None:
                 print(f"❌ Warning: Class '{class_name}' not found for mask ID {mask_id}. Skipping...")
                 continue
@@ -94,6 +88,8 @@ class YOLOExporter(BaseExporter):
         if image is None:
             raise ValueError(f"❌ Failed to load image: {image_path}")
         return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+
 
     def _convert_masks_to_yolo(self, masks, class_ids, img_width, img_height):
         """

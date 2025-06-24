@@ -7,11 +7,12 @@ from ultralytics import YOLO, SAM
 class InferenceThread(QThread):
     inference_completed = pyqtSignal(str, list, np.ndarray, list)  # Signal for progress updates
 
-    def __init__(self, model_path, image_paths, mode):
+    def __init__(self, model_path, image_paths, mode, conf):
         super().__init__()
         self.model_path = model_path
         self.image_paths = image_paths
         self.mode = mode.lower()
+        self.conf = conf
         self._is_running = True  # Flag to control thread execution
 
     def run(self):
@@ -46,7 +47,7 @@ class InferenceThread(QThread):
 
                 # Perform inference
                 image = Image.open(image_path).convert("RGB")
-                results = model.predict(image_path, save_txt=False, save_crop=False, verbose = False, conf= 0.1, iou = 0.2, agnostic_nms=True)
+                results = model.predict(image_path, save_txt=False, save_crop=False, verbose = False, conf= self.conf, iou = 0.2, agnostic_nms=True)
                 segmentation_results = results[0].masks.xy if results[0].masks else []
                 np_image = np.array(image)
                 # Extract class names
