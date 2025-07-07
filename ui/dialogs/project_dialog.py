@@ -78,6 +78,11 @@ class ProjectStartupDialog(QDialog):
                 if not os.path.exists(dest):
                     shutil.copy(f, dest)
 
+        # Step 6: Create the .SEprog launcher file
+        seprog_path = os.path.join(project_path, f"{project_name}.SEprog")
+        with open(seprog_path, "w") as f:
+            f.write("SegmentME Project File")
+
 
 
 
