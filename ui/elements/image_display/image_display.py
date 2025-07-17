@@ -1,7 +1,6 @@
-from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem
+from PyQt6.QtWidgets import QGraphicsView, QTableWidget,QGraphicsScene, QGraphicsPixmapItem
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QImage, QPixmap, QPainter
-from PyQt6.QtWidgets import QTableWidget
 from core.tools.manual_mask import ManualMask
 from core.tools.sam2_masker import SamMasker2
 from core.tools.sam2_boxmasker import SamBoxMasker
@@ -10,9 +9,7 @@ from core.tools.intellignent_scissors import IntelligentScissors
 import cv2
 import numpy as np
 
-from PyQt6.QtWidgets import QApplication
 
-from PyQt6.QtWidgets import QGraphicsView
 
 
 
@@ -124,7 +121,7 @@ class ImageDisplay(QGraphicsView):
         """
         Sync selected rows from the table and highlight all of them.
         """
-        # 🧠 Instead of trusting the input list blindly, re-read all selected rows
+        #  Instead of trusting the input list blindly, re-read all selected rows
         selected_ids = []
         for item in self.parent.annotations.table.selectedItems():
             if item.column() == 1:  # Mask ID column
@@ -190,6 +187,7 @@ class ImageDisplay(QGraphicsView):
         self.refresh_masks()
 
 
+
     def wheelEvent(self, event):
         zoom_in_factor = 1.15  # this factor was from your original refactored version
         zoom_out_factor = 1 / zoom_in_factor
@@ -228,7 +226,6 @@ class ImageDisplay(QGraphicsView):
                 a = self.parent.tool_manager.current_tool.generate_mask(self.parent.state_manager.current_image)
             if isinstance(self.parent.tool_manager.current_tool, DEXTRMasker):
                 a = self.parent.tool_manager.current_tool.generate_mask(self.parent.state_manager.current_image)
-
 
     def wheelEvent(self, event):
         """
@@ -282,7 +279,8 @@ class ImageDisplay(QGraphicsView):
                         selected_rows.append({
                             "image_name": self.parent.annotations.table.item(row, 0).text(),
                             "mask_id": table_mask_id,
-                            "class": self.parent.annotations.table.item(row, 3).text(),
+                            "class": self.parent.annotations.table.cellWidget(row, 3).currentText(),
+
                         })
 
                 if selected_rows:
@@ -370,6 +368,7 @@ class ImageDisplay(QGraphicsView):
             event.accept()
         else:
             super().mouseReleaseEvent(event)
+    
     def get_clicked_masks(self, click_point):
         """
         Identify all masks that contain the clicked point.

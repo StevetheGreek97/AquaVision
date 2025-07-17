@@ -162,10 +162,7 @@ class MainApp(QMainWindow):
                 if self.inference_manager:
                     self.inference_manager.stop_inference()
 
-               
-
-              
-                                # Initialize and start the inference
+                # Initialize and start the inference
                 self.inference_manager = InferenceManager(self, mode, display_text)
                 self.inference_manager.run_inference(
                     self.current_model_path, self.state_manager.image_paths, threshold
@@ -231,16 +228,6 @@ class MainApp(QMainWindow):
         model = Sam2Auto(self)
         model.generate_masks(self.state_manager.current_image)
         print("🟢 Running SAM2 Auto Segmentation...")
-
-#    def toggle_results_dock(self):
-#        """Toggle visibility of the Results Table (dockable)."""
-#        if self.results_dock.isHidden():
-#            self.results_dock.show()
-#            self.results_dock.raise_()  # Bring it to front if it's hidden behind something
-#        else:
-#            self.results_dock.hide()
-
-
 
 
     def initialize_project(self, db_path):

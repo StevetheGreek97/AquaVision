@@ -1,6 +1,7 @@
-from PyQt6.QtWidgets import QDockWidget, QVBoxLayout, QWidget, QTableWidget, QTableWidgetItem
+from PyQt6.QtWidgets import QComboBox, QDockWidget, QVBoxLayout, QWidget, QTableWidget, QTableWidgetItem
 from PyQt6.QtCore import pyqtSignal, Qt
-from PyQt6.QtGui import QBrush, QColor
+from PyQt6.QtGui import QBrush
+
 import cv2
 import numpy as np
 
@@ -21,7 +22,7 @@ class MaskResultsDock(QDockWidget):
         self.table.setHorizontalHeaderLabels(["Image Name", "Mask ID", "Surface Area", "Class"])
         self.table.setSelectionMode(QTableWidget.SelectionMode.MultiSelection)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table.itemChanged.connect(self.on_item_changed)
+        #self.table.itemChanged.connect(self.on_item_changed)
         self.table.itemSelectionChanged.connect(self.on_selection_changed)
 
         self.layout.addWidget(self.table)
@@ -52,7 +53,8 @@ class MaskResultsDock(QDockWidget):
             self._set_item(row, 0, image_name, editable=False)
             self._set_item(row, 1, str(mask_id), editable=False)
             self._set_item(row, 2, f"{surface_area:.2f}" if surface_area else "0.00", editable=False)
-            self._set_item(row, 3, class_name, editable=True, color=color)
+            self._set_combo(row, 3, class_name)
+
 
         self.restore_selected_ids(selected_ids)
 
@@ -94,16 +96,42 @@ class MaskResultsDock(QDockWidget):
                 row_data = {
                     "image_name": self.table.item(row, 0).text(),
                     "mask_id": self.table.item(row, 1).text(),
-                    "class": self.table.item(row, 3).text()
+                    "class": self.table.cellWidget(row, 3).currentText()
+
                 }
                 selected_rows.append(row_data)
 
         self.masks_selected.emit(selected_rows)
 
-    def on_item_changed(self, item):
-        if item.column() == 3:  # Class column
-            row = item.row()
-            new_class_name = item.text()
+    def _set_combo(self, row, column, current_class):
+        combo = QComboBox()
+        class_names = self.parent.state_manager.class_manager.get_all_class_names()
+
+        # Populate dropdown with colored items
+        for class_name in class_names:
+            color = self.parent.state_manager.class_manager.get_class_color(class_name)
+            combo.addItem(class_name)
+            index = combo.findText(class_name)
+            combo.setItemData(index, QBrush(color), Qt.ItemDataRole.ForegroundRole)
+
+        combo.setCurrentText(current_class)
+
+        # ✅ Force initial display to match class color
+        current_index = combo.findText(current_class)
+        current_color = self.parent.state_manager.class_manager.get_class_color(current_class)
+        combo.setItemData(current_index, QBrush(current_color), Qt.ItemDataRole.ForegroundRole)
+
+        def on_class_changed(new_class):
             mask_id = int(self.table.item(row, 1).text())
             image_name = self.table.item(row, 0).text()
-            self.parent.state_manager.mask_manager.rename_mask(image_name, mask_id, new_class_name)
+
+            self.parent.state_manager.mask_manager.rename_mask(image_name, mask_id, new_class)
+
+            # ✅ Refresh overlay to reflect new color
+            self.parent.image_display.refresh_masks()
+
+            if hasattr(self.parent, 'statistics'):
+                self.parent.statistics.refresh_plot()
+
+        combo.currentTextChanged.connect(on_class_changed)
+        self.table.setCellWidget(row, column, combo)

@@ -7,7 +7,7 @@ class ProjectStartupDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Welcome to SegmentME")
-        self.setFixedSize(320, 300)
+        self.setFixedSize(420, 320) # you know it's a good size for a dialog
 
         self.selected_project_path = None
         self.is_new_project = None
