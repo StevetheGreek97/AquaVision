@@ -17,6 +17,8 @@ class StateManager(QObject):
 
         # Shared Database Connection
         self.db = DatabaseConnection(db_path)
+        self.project_root = os.path.dirname(os.path.dirname(db_path))
+
 
         # db  Managers
         self.class_manager = ClassDatabaseManager(self.db)

@@ -18,6 +18,15 @@ from core.tools.auto_sam2 import Sam2Auto
 import shutil
 from services.file_handlers import loader, get_resource_path
 from services.logger import logger, log_memory_usage
+from ui.dialogs.export_dialog import ExportDialog  # Adjust path if needed
+from core.exporters.yolo_exporter import YOLOExporter  # Already there
+from ui.dialogs.training_dialog import TrainingDialog  # adjust if needed
+# from core.exporters.coco_exporter import COCOExporter  # If you support COCO
+# Modify popup_training_dialog in MainApp
+from ui.dialogs.training_monitor import TrainingMonitor
+from core.trainer.worker import TrainingWorker
+from PyQt6.QtCore import QThread, QTimer
+
 
 class MainApp(QMainWindow):
     image_changed = pyqtSignal(str, object)
@@ -195,10 +204,33 @@ class MainApp(QMainWindow):
 
 
     def _export_results(self):
-        exporter = YOLOExporter(self)
-        exporter.export_all_annotations()
+        dialog = ExportDialog(self)
+        if dialog.exec():
+            settings = dialog.get_settings()
 
-  
+ 
+
+            format = settings["format"]
+            train = settings["train"]
+            val = settings["val"]
+            test = settings["test"]
+
+
+
+            print(f"📊 Train: {train}%, Val: {val}%, Test: {test}%")
+
+            if format == "yolo":
+                exporter = YOLOExporter(self)
+                exporter.export_all_annotations(train, val, test)
+            elif format == "coco":
+                # exporter = COCOExporter(self)
+                # exporter.export(output_dir, train, val, test)
+                QMessageBox.information(self, "Coming Soon", "COCO export not implemented yet.")
+            else:
+                QMessageBox.warning(self, "Unsupported Format", f"Export format '{format}' not supported.")
+
+
+    
 
     def eventFilter(self, source, event):
         """
@@ -220,14 +252,43 @@ class MainApp(QMainWindow):
 
         return super().eventFilter(source, event)
 
+    def popup_training_dialog(self):
+        dialog = TrainingDialog(self.project_root, self)
+        if dialog.exec():
+            settings = dialog.get_settings()
 
-    def run_sam2_auto(self):
-        """
-        Runs SAM2 automatic segmentation from the menu.
-        """
-        model = Sam2Auto(self)
-        model.generate_masks(self.state_manager.current_image)
-        print("🟢 Running SAM2 Auto Segmentation...")
+            # Keep references
+            self.training_thread = QThread(self)
+            self.training_worker = TrainingWorker(settings, self.project_root)
+            self.training_worker.moveToThread(self.training_thread)
+
+            self.training_monitor = TrainingMonitor(self)
+            self.training_monitor.set_stop_callback(self.training_worker.stop)
+            self.training_monitor.set_thread(self.training_thread)
+
+            # Signals
+            self.training_worker.log_signal.connect(self._handle_training_log)
+
+            self.training_worker.finished_signal.connect(self.training_monitor.accept)
+            self.training_worker.finished_signal.connect(self.training_worker.deleteLater)
+            self.training_thread.finished.connect(self.training_thread.deleteLater)
+
+            # Final cleanup
+            def cleanup_monitor():
+                if self.training_monitor.isVisible():
+                    self.training_monitor.accept()
+                self.training_monitor.deleteLater()
+                self.training_worker = None
+                self.training_thread = None
+                self.training_monitor = None
+
+            self.training_thread.finished.connect(cleanup_monitor)
+            self.training_thread.started.connect(self.training_worker.run)
+
+            self.training_thread.start()
+            self.training_monitor.exec()
+
+
 
 
     def initialize_project(self, db_path):
@@ -255,6 +316,29 @@ class MainApp(QMainWindow):
             self.state_manager.set_image_paths(image_paths)
             self.slider.set_image_count(len(image_paths))
             self.image_display.display_image(self.state_manager.current_image_path)
+            QTimer.singleShot(0, self.image_display.fit_to_view)
         else:
             QMessageBox.information(self, "No Images", "No images found in the selected folder.")
 
+    def _handle_training_log(self, log_text):
+        # Optional: forward raw logs to console or logger
+        print(log_text)
+
+        # Try to extract metrics from YOLO training log
+        from services.utils import extract_logging_path
+
+        match = extract_logging_path(log_text)
+        
+        if match:
+            
+            print(f"Training log detected: {match}")
+
+            if self.training_monitor:
+                run_dir = os.path.join(self.project_root, match)
+                
+                results_csv = os.path.join(run_dir, "results.csv")
+
+
+                self.training_monitor.results_csv = results_csv
+   
+            

@@ -1,5 +1,6 @@
 from PyQt6.QtWidgets import QMenuBar, QDialog, QVBoxLayout, QTextEdit, QPushButton, QTextBrowser
 from PyQt6.QtGui import QAction, QFont
+from ui.dialogs.export_dialog import ExportDialog 
 
 from services.file_handlers import get_resource_path
 class MenuBar(QMenuBar):
@@ -45,11 +46,10 @@ class MenuBar(QMenuBar):
 
         actions = [
             ("Run Inference", lambda: print("Run Inference clicked") or self.parent.popup_inference_dialog(self.parent.models_dir, 'yolo', 'Running inference...')),
-             ("Segment Anything", None)# lambda: self.parent.run_sam2_auto() 
+             ("Train Custom Model", self.parent.popup_training_dialog)
         ]
 
         self._add_actions_to_menu(actions_menu, actions)
-
 
     def _init_view_menu(self):
         """
@@ -122,3 +122,21 @@ class MenuBar(QMenuBar):
 
         doc_dialog.setLayout(layout)
         doc_dialog.exec()
+
+    def show_export_dialog(self):
+        dialog = ExportDialog(self.parent)
+        if dialog.exec():
+            settings = dialog.get_settings()
+
+            if not settings["output_dir"]:
+                print("❌ No output folder selected.")
+                return
+
+            #  Call your export logic
+            self.parent.export_annotations(
+                format=settings["format"],
+                output_dir=settings["output_dir"],
+                train_pct=settings["train"],
+                val_pct=settings["val"],
+                test_pct=settings["test"]
+            )

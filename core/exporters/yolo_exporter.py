@@ -4,14 +4,15 @@ import numpy as np
 from shapely.geometry import Polygon
 from services.file_handlers import normalize_coordinates, write_annotations_to_file
 from core.exporters.base_exporter import BaseExporter
-
-
+from ultralytics.data.split import autosplit
+import shutil
+from PyQt6.QtWidgets import QMessageBox
 class YOLOExporter(BaseExporter):
     """
     Handles exporting YOLO segmentation annotations.
     """
 
-    def export_all_annotations(self):
+    def export_all_annotations(self,  train_pct, val_pct, test_pct):
         """
         Export YOLO annotations for all images and generate a data.yaml file.
         """
@@ -19,8 +20,29 @@ class YOLOExporter(BaseExporter):
             print("❌ No images loaded to export annotations.")
             return
 
-        # ✅ Use timestamped export path inside project/annotations/
-        self.set_export_dir_with_timestamp()
+        # Determine labels directory
+
+        if os.path.exists(self.export_dir):
+            reply = QMessageBox.warning(
+                self.parent,
+                "Overwrite Existing Labels",
+                f"The labels folder already exists at:\n\n{self.export_dir}\n\n"
+                "Do you want to overwrite it?\nAll existing label files will be deleted.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+
+            if reply != QMessageBox.StandardButton.Yes:
+                print("❌ Export cancelled by user to prevent overwriting.")
+                return
+
+            # Delete the existing labels folder
+            shutil.rmtree(self.export_dir)
+            print(f"⚠️ Existing labels folder deleted: {self.export_dir}")
+
+        # Create the labels directory
+        os.makedirs(self.export_dir, exist_ok=True)
+
+
 
         progress_dialog = self._show_progress_dialog(len(self.parent.state_manager.image_paths))
 
@@ -35,10 +57,13 @@ class YOLOExporter(BaseExporter):
                 print(f"❌ Error processing {image_path}: {e}")
 
             progress_dialog.setValue(index + 1)
+        split_weights = (train_pct / 100, val_pct / 100, test_pct / 100)
+        print(f'{self.export_dir} export_dir')
+        autosplit(path=os.path.join(self.parent.project_root, "images"), weights=split_weights, annotated_only=False)
 
         self.generate_data_yaml()
         progress_dialog.close()
-        print(f"✅ All annotations exported to: {self.annotations_dir}")
+
 
     def _process_image(self, image_path):
         """
@@ -57,7 +82,7 @@ class YOLOExporter(BaseExporter):
 
         yolo_annotations = self._convert_masks_to_yolo(masks, class_ids, img_width, img_height)
 
-        write_annotations_to_file(image_name, yolo_annotations, self.annotations_dir)
+        write_annotations_to_file(image_name, yolo_annotations, self.export_dir)
 
     def fetch_image_masks_from_db(self, image_name):
         """

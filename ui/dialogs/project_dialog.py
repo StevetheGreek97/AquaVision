@@ -20,9 +20,6 @@ class ProjectStartupDialog(QDialog):
         new_btn.clicked.connect(self.create_project)
         layout.addWidget(new_btn)
 
-        load_btn = QPushButton("📂 Load Existing Project")
-        load_btn.clicked.connect(self.load_project)
-        layout.addWidget(load_btn)
 
         # Recent section
         layout.addWidget(QLabel("Recent Projects:"))
@@ -79,19 +76,13 @@ class ProjectStartupDialog(QDialog):
                     shutil.copy(f, dest)
 
         # Step 6: Create the .SEprog launcher file
-        seprog_path = os.path.join(project_path, f"{project_name}.SEprog")
+        seprog_path = os.path.join(project_path, f"{project_name}.SEproj")
         with open(seprog_path, "w") as f:
             f.write("SegmentME Project File")
 
 
 
 
-    def load_project(self):
-        db_path, _ = QFileDialog.getOpenFileName(self, "Select Existing Project DB", filter="SQLite DB (*.db)")
-        if db_path and os.path.exists(db_path):
-            self.selected_project_path = db_path
-            self.is_new_project = False
-            self.accept()
 
     def load_recent(self, path):
         self.selected_project_path = path
