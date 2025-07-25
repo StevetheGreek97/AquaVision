@@ -3,18 +3,20 @@ from PyQt6.QtWidgets import (
     QLineEdit, QTabWidget, QComboBox, QHBoxLayout, QDoubleSpinBox,
     QMessageBox, QScrollArea, QWidget, QFormLayout, QGroupBox
 )
-
+from core.trainer.trainer_settings import TrainingSettings
 import os
 from services.hardware import auto_detect_device 
-
+from pathlib import Path
 
 class TrainingDialog(QDialog):
-    def __init__(self, project_root, parent=None):
-        super().__init__(parent)
+    def __init__(self, parent=None):
+        super().__init__()
+        self.parent = parent
         self.setWindowTitle("🧠 Train Custom Model")
         self.setMinimumSize(650, 650)
-        self.project_root = project_root
-        self.models_dir = os.path.join(project_root, ".models")
+        self.project_root = Path(self.parent.state_manager.project_root)
+
+        self.models_dir = str(self.project_root / ".models")
 
         self.tabs = QTabWidget(self)
         self.training_tab = QWidget()
@@ -65,7 +67,7 @@ class TrainingDialog(QDialog):
 
 
         self.data_path_input = QLabel()
-        self.data_path_input.setText(f'{self.project_root}/data.yaml')
+        self.data_path_input.setText(str(self.project_root / "data.yaml"))
         form.addRow("Dataset YAML path:", self.data_path_input)
 
         self.epoch_box = QSpinBox()
@@ -99,20 +101,22 @@ class TrainingDialog(QDialog):
         self.optimizer_input.addItems(["auto", "SGD", "Adam", "AdamW", "NAdam", "RAdam", "RMSProp"])
         form.addRow("Optimizer:", self.optimizer_input)
 
-        default_project_name = os.path.basename(self.project_root.rstrip("/")) + "_trainings"
+
+    
         self.project_name = QLineEdit()
-        self.project_name.setText(default_project_name)
+        self.project_name.setText('MyCooltTrainingProject')
         form.addRow("Project name:", self.project_name)
 
-        default_run_name = 'runs'
+  
         self.run_name = QLineEdit()
-        self.run_name.setText(default_run_name)
+        self.run_name.setText('runs')
         form.addRow("Run name:", self.run_name)
+        
+        self.output_dir_input = QLabel()
+        self.output_dir_input.setText(str(self.project_root / 'trainings' / self.project_name.text() / self.run_name.text()))
+        self.project_name.textChanged.connect(self.update_output_path)
+        self.run_name.textChanged.connect(self.update_output_path)
 
-
-        self.output_dir_input = QLineEdit()
-        self.output_dir_input.setText(os.path.join(self.project_root, "trainings"))
-        self.output_dir_input.setReadOnly(True)
         form.addRow("Output directory:", self.output_dir_input)
 
 
@@ -164,6 +168,8 @@ class TrainingDialog(QDialog):
         scroll.setWidget(container)
         layout.addWidget(scroll)
         self.training_tab.setLayout(layout)
+    def update_output_path(self):
+        self.output_dir_input.setText(str(self.project_root / 'trainings' /  self.project_name.text() / self.run_name.text()))
 
     def _build_augment_tab(self):
         layout = QVBoxLayout()
@@ -284,7 +290,7 @@ class TrainingDialog(QDialog):
             return
         self.accept()
 
-    def validate_project_structure(self, root):
+    def validate_project_structure(self, root: Path):
         required = [
             "autosplit_train.txt",
             "autosplit_val.txt",
@@ -295,57 +301,65 @@ class TrainingDialog(QDialog):
         ]
         missing = []
         for item in required:
-            path = os.path.join(root, item)
+            path = root / item
             if item in ["images", "labels"]:
-                if not os.path.isdir(path):
+                if not path.is_dir():
                     missing.append(item)
             else:
-                if not os.path.isfile(path):
+                if not path.is_file():
                     missing.append(item)
         return missing
 
 
     def get_settings(self):
-        return {
-            # --- Core Training Settings ---
-            "model": os.path.join(self.models_dir, self.model_selector.currentText()),
-            "data": self.data_path_input.text(),
-            "epochs": self.epoch_box.value(),
-            "batch": self.batch_box.value(),
-            "imgsz": self.imgsz_box.value(),
-            "device": self.detected_device,
-            "optimizer": self.optimizer_input.currentText(),
-            "project": self.project_name.text(),
-            "name": self.run_name.text(),
+        # Step 1: Compute base output directory using pathlib (OS-independent)
+        base_output_dir = self.project_root / "trainings" / self.project_name.text()
+        run_base = self.run_name.text()
+        full_output_dir = base_output_dir / run_base
 
+        # Step 2: Ensure unique output directory (e.g., run, run1, run2, ...)
+        counter = 1
+        while full_output_dir.exists():
+            full_output_dir = base_output_dir / f"{run_base}{counter}"
+            counter += 1
 
-            # --- Advanced Training ---
-            "time": self.time_limit.value() or None,
-            "patience": self.patience_box.value(),
-            "lr0": self.lr0.value(),
-            "lrf": self.lrf.value(),
-            "momentum": self.momentum.value(),
-            "weight_decay": self.weight_decay.value(),
+        # Step 3: Update the output_dir label in UI
+        self.output_dir_input.setText(str(full_output_dir))
 
-            # --- Augmentation ---
-            "hsv_h": self.hsv_h.value(),
-            "hsv_s": self.hsv_s.value(),
-            "hsv_v": self.hsv_v.value(),
-            "degrees": self.degrees.value(),
-            "translate": self.translate.value(),
-            "scale": self.scale.value(),
-            "shear": self.shear.value(),
-            "perspective": self.perspective.value(),
-            "flipud": self.flipud.value(),
-            "fliplr": self.fliplr.value(),
-            "bgr": self.bgr.value(),
-            "mosaic": self.mosaic.value(),
-
-            # --- Advanced Augmentations ---
-            "mixup": self.mixup.value(),
-            "cutmix": self.cutmix.value(),
-            "copy_paste": self.copy_paste.value(),
-            "copy_paste_mode": self.copy_paste_mode.currentText(),
-            "auto_augment": self.auto_augment.currentText(),
-            "erasing": self.erasing.value()
-        }
+        # Step 4: Return a clean TrainingSettings object
+        return TrainingSettings(
+            model=str(Path(self.models_dir) / self.model_selector.currentText()),
+            data=str(Path(self.data_path_input.text())),
+            epochs=self.epoch_box.value(),
+            batch=self.batch_box.value(),
+            imgsz=self.imgsz_box.value(),
+            device=self.detected_device,
+            optimizer=self.optimizer_input.currentText(),
+            project=self.project_name.text(),
+            name=full_output_dir.name,  # e.g., "run", "run1", etc.
+            time=self.time_limit.value() or None,
+            patience=self.patience_box.value(),
+            lr0=self.lr0.value(),
+            lrf=self.lrf.value(),
+            momentum=self.momentum.value(),
+            weight_decay=self.weight_decay.value(),
+            hsv_h=self.hsv_h.value(),
+            hsv_s=self.hsv_s.value(),
+            hsv_v=self.hsv_v.value(),
+            degrees=self.degrees.value(),
+            translate=self.translate.value(),
+            scale=self.scale.value(),
+            shear=self.shear.value(),
+            perspective=self.perspective.value(),
+            flipud=self.flipud.value(),
+            fliplr=self.fliplr.value(),
+            bgr=self.bgr.value(),
+            mosaic=self.mosaic.value(),
+            mixup=self.mixup.value(),
+            cutmix=self.cutmix.value(),
+            copy_paste=self.copy_paste.value(),
+            copy_paste_mode=self.copy_paste_mode.currentText(),
+            auto_augment=self.auto_augment.currentText(),
+            erasing=self.erasing.value(),
+            output_dir=str(full_output_dir)
+        )

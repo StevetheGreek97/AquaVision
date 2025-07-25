@@ -117,96 +117,106 @@ class TrainingMonitorcmd(QDialog):
 
 
 import os
-import time
 import pandas as pd
-from PyQt6.QtWidgets import QDialog, QVBoxLayout, QPushButton
+from PyQt6.QtWidgets import QDialog, QVBoxLayout, QPushButton, QTextEdit
 from PyQt6.QtCore import QTimer
 import pyqtgraph as pg
 
 class TrainingMonitor(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
+    def __init__(self):
+        super().__init__()
         self.setWindowTitle("📉 Training Monitor")
-        self.setMinimumSize(1000, 600)
+        self.setMinimumSize(1000, 700)
         self.thread = None
         self.results_csv = None
-
-        # Plot widgets
-        self.metrics_plot = pg.PlotWidget(title="📊 Loss Metrics (box, seg, cls, dfl)")
-        self.trainval_plot = pg.PlotWidget(title="📈 Train/Validation Scores")
-        self.metrics_plot.addLegend()
-        self.trainval_plot.addLegend()
-        self.metrics_plot.setLabel('left', 'Loss')
-        self.metrics_plot.setLabel('bottom', 'Epoch')
-        self.trainval_plot.setLabel('left', 'Score')
-        self.trainval_plot.setLabel('bottom', 'Epoch')
-
-        self.metrics_plot.showGrid(x=True, y=True)
-        self.trainval_plot.showGrid(x=True, y=True)
-
-        self.stop_btn = QPushButton("🛑 Stop Training")
-        self.stop_btn.clicked.connect(self._on_stop)
-
-        layout = QVBoxLayout(self)
-        layout.addWidget(self.metrics_plot)
-        layout.addWidget(self.trainval_plot)
-        layout.addWidget(self.stop_btn)
-
         self._stop_requested = False
         self.stop_callback = None
 
+        # Metrics plot
+        self.metrics_plot = pg.PlotWidget(title="📊 Loss Metrics (box, seg, cls, dfl)")
+        self.metrics_plot.setLabel('left', 'Loss')
+        self.metrics_plot.setLabel('bottom', 'Epoch')
+        self.metrics_plot.addLegend()
+        self.metrics_plot.showGrid(x=True, y=True)
+
+        # Train/Val plot
+        self.trainval_plot = pg.PlotWidget(title="📈 Train/Validation Scores")
+        self.trainval_plot.setLabel('left', 'Score')
+        self.trainval_plot.setLabel('bottom', 'Epoch')
+        self.trainval_plot.addLegend()
+        self.trainval_plot.showGrid(x=True, y=True)
+
+        # Log view
+        self.log_view = QTextEdit()
+        self.log_view.setReadOnly(True)
+        self.log_view.setPlaceholderText("Training logs will appear here...")
+
+        # Stop button
+        self.stop_btn = QPushButton("🛑 Stop Training")
+        self.stop_btn.clicked.connect(self._on_stop)
+
+        # Layout
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.metrics_plot)
+        layout.addWidget(self.trainval_plot)
+        layout.addWidget(self.log_view)
+        layout.addWidget(self.stop_btn)
+
+        # Timer to monitor results.csv
         self.timer = QTimer()
-        self.timer.setInterval(10000)  # 1 second
+        self.timer.setInterval(10000)  # Check every 10 sec
         self.timer.timeout.connect(self._update_from_csv)
         self.timer.start()
 
     def _update_from_csv(self):
-        print("[⏰] Checking CSV file...")
+        if not self.results_csv or not os.path.exists(self.results_csv):
+            print("📂 Waiting for results.csv to appear...")
+            return
 
         try:
             df = pd.read_csv(self.results_csv)
-            print(df.tail(1))  # Show last line for debug
+            if df.empty:
+                return
+
+            print("[⏰] Reading results.csv...")
+            print(df.tail(1))
 
             epochs = pd.to_numeric(df["epoch"], errors="coerce")
 
+            self.metrics_plot.clear()
+            self.trainval_plot.clear()
 
-            self.metrics_plot.clear()     # ← ✅ Clear before plotting
-            self.trainval_plot.clear()    # ← ✅ Clear before plotting
-
-            # Plot Loss Metrics
+            # Loss Metrics
             self._plot_metric(self.metrics_plot, epochs, df.get("train/box_loss"), 'box_loss', 'r')
             self._plot_metric(self.metrics_plot, epochs, df.get("train/seg_loss"), 'seg_loss', 'g')
             self._plot_metric(self.metrics_plot, epochs, df.get("train/cls_loss"), 'cls_loss', 'b')
             self._plot_metric(self.metrics_plot, epochs, df.get("train/dfl_loss"), 'dfl_loss', 'y')
 
-            # Plot Train/Val Scores
+            # Eval Metrics
             self._plot_metric(self.trainval_plot, epochs, df.get("metrics/precision(B)"), 'precision', 'c')
             self._plot_metric(self.trainval_plot, epochs, df.get("metrics/recall(B)"), 'recall', 'm')
             self._plot_metric(self.trainval_plot, epochs, df.get("metrics/mAP50(B)"), 'mAP50', 'w')
             self._plot_metric(self.trainval_plot, epochs, df.get("metrics/mAP50-95(B)"), 'mAP50-95', 'orange')
 
         except Exception as e:
-            print(f"❌ Error reading or plotting CSV: {e}")
-
+            print(f"❌ Error reading results.csv: {e}")
 
     def _plot_metric(self, widget, x, y, label, color):
         if y is not None and not y.isna().all() and len(x) > 0:
-            # Remove existing items with same label (to avoid duplication)
             for item in widget.listDataItems():
                 if item.name() == label:
                     widget.removeItem(item)
 
-            # Add fresh plot
             plot_item = pg.PlotDataItem(x, y, pen=pg.mkPen(color=color, width=2), name=label)
             widget.addItem(plot_item)
-
-            # Auto range ensures it adjusts to small updates
             widget.enableAutoRange(axis=pg.ViewBox.XYAxes, enable=True)
 
+    def append_log(self, message: str):
+        self.log_view.append(message)
+        self.log_view.verticalScrollBar().setValue(self.log_view.verticalScrollBar().maximum())
 
     def set_thread(self, thread):
         self.thread = thread
-
 
     def set_stop_callback(self, callback):
         self.stop_callback = callback
@@ -215,25 +225,23 @@ class TrainingMonitor(QDialog):
         self._stop_requested = True
         self.timer.stop()
 
-        # ✅ Safely stop the worker if it still exists
         if self.stop_callback:
             try:
                 self.stop_callback()
             except RuntimeError as e:
                 print(f"⚠️ Worker already deleted: {e}")
 
-    print("🛑 Training stopped manually.")
+        self.append_log("🛑 Training stopped manually.")
+
 
     def closeEvent(self, event):
-      
-        self._on_stop()  # This already calls stop_callback()
+        self._on_stop()
 
         if self.thread and self.thread.isRunning():
             print("⏳ Waiting for training thread to stop...")
             self.thread.quit()
             self.thread.wait()
-    
 
-        self.timer.stop()  # Always stop the timer
+        self.timer.stop()
         self.hide()
-        event.ignore()  # Prevent destruction, just hide
+        event.ignore()

@@ -5,11 +5,12 @@ class ClassDatabaseManager:
     Manages class storage and retrieval.
     """
 
-    def __init__(self, db_connection):
+    def __init__(self, parent,db_connection):
         """
         Initialize with a shared database connection.
         """
         self.db = db_connection  # ✅ Shared DatabaseConnection instance
+        self.parent = parent  # Store the parent reference for signal emissions
 
     def add_class(self, class_name, color):
         """
@@ -23,13 +24,14 @@ class ClassDatabaseManager:
             "INSERT OR IGNORE INTO classes (class_name, color) VALUES (?, ?)",
             (class_name, color.name())
         )
+        self.parent.masks_updated.emit()
 
     def remove_class(self, class_name):
         """
         Remove a class by name.
         """
         self.db.execute_query("DELETE FROM classes WHERE class_name = ?", (class_name,))
-
+        self.parent.masks_updated.emit()
     def get_class_id(self, class_name):
         """
         Get the ID of a class by name.

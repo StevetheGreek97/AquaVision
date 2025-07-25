@@ -2,33 +2,42 @@ import os
 from core.database.class_manager import ClassDatabaseManager
 from core.database.connection import DatabaseConnection
 from core.database.mask_manager import MaskDatabaseManager
+
 from PyQt6.QtGui import QColor
 from PyQt6.QtCore import QObject, pyqtSignal
-
+from pathlib import Path
 
 class StateManager(QObject):
     image_changed = pyqtSignal(str)
+    masks_updated = pyqtSignal()
     """
     Manages the application state including the current image index, path, and associated masks and colors.
     """
 
     def __init__(self, db_path):
         super().__init__()  # Initialize the QObject base class
+        self.project_root = Path(db_path).parent.parent
+
+    
 
         # Shared Database Connection
         self.db = DatabaseConnection(db_path)
-        self.project_root = os.path.dirname(os.path.dirname(db_path))
+        
+        print(f"Project root directory: {self.project_root}")
+        print(f"Database path: {db_path}")
 
 
         # db  Managers
-        self.class_manager = ClassDatabaseManager(self.db)
-        self.mask_manager = MaskDatabaseManager(self.db)
+        self.class_manager = ClassDatabaseManager(self, self.db)
+        self.mask_manager = MaskDatabaseManager(self, self.db)
+
+
 
         # Initialize state variables
         self.image_index = -1  # Index of the currently displayed image (-1 means no image loaded)
         self.image_paths = []
         self._current_image = None  # NumPy array of the current image
-   
+
     @property
     def current_image(self):
         """

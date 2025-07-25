@@ -8,7 +8,6 @@ from ui.dialogs.table import MaskResultsDock
 from ui.dialogs.instance_count import MaskStatisticsDock
 from ui.elements.slider import ImageSlider
 import os
-from core.config import ProjectConfigManager
 from PyQt6.QtGui import QIcon 
 from core.state import StateManager  
 from core.inference_manager import  InferenceManager
@@ -25,12 +24,12 @@ from ui.dialogs.training_dialog import TrainingDialog  # adjust if needed
 # Modify popup_training_dialog in MainApp
 from ui.dialogs.training_monitor import TrainingMonitor
 from core.trainer.worker import TrainingWorker
-from PyQt6.QtCore import QThread, QTimer
-
+from PyQt6.QtCore import QThread
+from pathlib import Path
 
 class MainApp(QMainWindow):
     image_changed = pyqtSignal(str, object)
-    #masks_updated = pyqtSignal()
+    
     """
     Main application window.
     """
@@ -190,14 +189,20 @@ class MainApp(QMainWindow):
         if not hasattr(self, 'annotations'):
             self.annotations = MaskResultsDock(self)
             self.annotations.masks_selected.connect(self.image_display.set_highlighted_masks)
+            #self.sidebar.class_list_updated.connect(lambda: self.annotations.refresh_table(self.state_manager.current_image_path))
+            self.state_manager.image_changed.connect(self.annotations.refresh_table)
+            self.state_manager.masks_updated.connect(self.annotations.refresh_table)
+
             self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.annotations)
         if not hasattr(self, 'statistics') or self.statistics is None:
             self.statistics = MaskStatisticsDock(self)
             self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.statistics)
             self.state_manager.image_changed.connect(self.statistics.refresh_plot)
+            self.state_manager.masks_updated.connect(self.statistics.refresh_plot)
         
+
         print("Refreshing results and statistics...")
-        self.annotations.refresh_table(current_image_path)
+        self.annotations.refresh_table()
         self.statistics.refresh_plot()
         self.annotations.show()
         self.statistics.show()
@@ -240,7 +245,7 @@ class MainApp(QMainWindow):
             if event.key() == Qt.Key.Key_Delete:
                 print("Delete key pressed")
                 self.image_display.delete_selected_masks()
-                self.annotations.refresh_table(self.state_manager.current_image_path)
+
                 self.show_results()  # Update results
                 return True
             elif event.key() == Qt.Key.Key_Right:  # Navigate to the next image
@@ -253,92 +258,56 @@ class MainApp(QMainWindow):
         return super().eventFilter(source, event)
 
     def popup_training_dialog(self):
-        dialog = TrainingDialog(self.project_root, self)
+        dialog = TrainingDialog(self)
         if dialog.exec():
             settings = dialog.get_settings()
 
-            # Keep references
             self.training_thread = QThread(self)
-            self.training_worker = TrainingWorker(settings, self.project_root)
+            self.training_worker = TrainingWorker(settings)
             self.training_worker.moveToThread(self.training_thread)
 
-            self.training_monitor = TrainingMonitor(self)
+            results_csv_path = Path(settings.output_dir) / "results.csv"
+
+            self.training_monitor = TrainingMonitor()
+            self.training_monitor.results_csv = str(results_csv_path)
             self.training_monitor.set_stop_callback(self.training_worker.stop)
             self.training_monitor.set_thread(self.training_thread)
 
-            # Signals
-            self.training_worker.log_signal.connect(self._handle_training_log)
+            # 💬 Connect logging output
+            self.training_worker.log_signal.connect(self.training_monitor.append_log)
 
-            self.training_worker.finished_signal.connect(self.training_monitor.accept)
+            # ✅ Instead of closing, just notify the monitor
+            def on_training_finished():
+                self.training_monitor.append_log("✅ Training finished.")
+                self.training_monitor.stop_btn.setText("✅ Close")
+                self.training_monitor.stop_btn.clicked.disconnect()
+                self.training_monitor.stop_btn.clicked.connect(self.training_monitor.accept)
+                self.training_monitor.stop_btn.setEnabled(True)
+
+
+            self.training_worker.finished_signal.connect(on_training_finished)
+
+            # Proper cleanup
             self.training_worker.finished_signal.connect(self.training_worker.deleteLater)
             self.training_thread.finished.connect(self.training_thread.deleteLater)
 
-            # Final cleanup
             def cleanup_monitor():
+                if self.training_thread and self.training_thread.isRunning():
+                    print("🛑 Stopping training thread before cleanup...")
+                    self.training_thread.quit()
+                    self.training_thread.wait()
+
                 if self.training_monitor.isVisible():
-                    self.training_monitor.accept()
+                    self.training_monitor.hide()
+
                 self.training_monitor.deleteLater()
                 self.training_worker = None
                 self.training_thread = None
                 self.training_monitor = None
+
 
             self.training_thread.finished.connect(cleanup_monitor)
             self.training_thread.started.connect(self.training_worker.run)
 
             self.training_thread.start()
             self.training_monitor.exec()
-
-
-
-
-    def initialize_project(self, db_path):
-        self.project_root = os.path.dirname(os.path.dirname(db_path))  # .aquavision/masks.db → project/
-        self.config = ProjectConfigManager(self.project_root)
-
-        # Load image paths from config
-        images_dir = self.config.get_images_dir()
-
-        if not os.path.exists(images_dir):
-            reply = QMessageBox.question(self, "Images Folder Not Found",
-                                        f"The folder '{images_dir}' does not exist.\nWould you like to locate it?",
-                                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-            if reply == QMessageBox.StandardButton.Yes:
-                folder = QFileDialog.getExistingDirectory(self, "Locate Images Folder")
-                if folder:
-                    relative = os.path.relpath(folder, self.project_root)
-                    self.config.set_images_dir(relative)
-                    images_dir = folder
-                else:
-                    return  # User canceled
-
-        image_paths = loader(images_dir)
-        if image_paths:
-            self.state_manager.set_image_paths(image_paths)
-            self.slider.set_image_count(len(image_paths))
-            self.image_display.display_image(self.state_manager.current_image_path)
-            QTimer.singleShot(0, self.image_display.fit_to_view)
-        else:
-            QMessageBox.information(self, "No Images", "No images found in the selected folder.")
-
-    def _handle_training_log(self, log_text):
-        # Optional: forward raw logs to console or logger
-        print(log_text)
-
-        # Try to extract metrics from YOLO training log
-        from services.utils import extract_logging_path
-
-        match = extract_logging_path(log_text)
-        
-        if match:
-            
-            print(f"Training log detected: {match}")
-
-            if self.training_monitor:
-                run_dir = os.path.join(self.project_root, match)
-                
-                results_csv = os.path.join(run_dir, "results.csv")
-
-
-                self.training_monitor.results_csv = results_csv
-   
-            

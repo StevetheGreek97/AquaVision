@@ -6,11 +6,12 @@ class MaskDatabaseManager:
     Manages mask storage and retrieval.
     """
 
-    def __init__(self, db_connection):
+    def __init__(self, parent, db_connection):
         """
         Initialize with a shared database connection.
         """
         self.db = db_connection  # ✅ Shared DatabaseConnection instance
+        self.parent = parent  # Store the parent reference for signal emissions
 
     def save_mask(self, mask, image_name, class_name="Object"):
         """
@@ -30,6 +31,7 @@ class MaskDatabaseManager:
             "INSERT INTO masks (image_name, mask_data, class_name, surface_area) VALUES (?, ?, ?, ?)",
             (image_name, mask_bytes, class_name, surface_area)
         )
+        self.parent.masks_updated.emit()
 
     def load_masks(self, image_name):
         """
@@ -55,6 +57,7 @@ class MaskDatabaseManager:
         Delete all masks from the database.
         """
         self.db.execute_query("DELETE FROM masks")
+        self.parent.masks_updated.emit()
 
     def rename_mask(self, image_name, mask_id, new_class_name):
         """
@@ -69,6 +72,7 @@ class MaskDatabaseManager:
             "UPDATE masks SET class_name = ? WHERE image_name = ? AND id = ?",
             (new_class_name, image_name, mask_id)
         )
+        self.parent.masks_updated.emit()
     def reindex_masks(self):
         """
         Reindex mask IDs to remove gaps after deletions.
@@ -91,6 +95,7 @@ class MaskDatabaseManager:
         self.db.execute_query("PRAGMA foreign_keys = ON;")  # Re-enable foreign key constraints
 
         print("✅ Mask IDs successfully reindexed!")
+        self.parent.masks_updated.emit()
 
     def delete_mask(self, image_name, mask_ids):
         """
@@ -108,6 +113,7 @@ class MaskDatabaseManager:
 
         self.db.execute_query(query, [image_name] + mask_ids)
         self.reindex_masks()
+        self.parent.masks_updated.emit()
 
         print(f"✅ Deleted mask(s) with ID(s): {mask_ids} from image: {image_name}")
 
@@ -117,6 +123,7 @@ class MaskDatabaseManager:
         """
         self.db.execute_query("DELETE FROM masks WHERE class_name = ?", (class_name,))
         print(f"🗑 Deleted all masks with class name: {class_name}")
+        self.parent.masks_updated.emit()
 
     def count_masks_by_class(self, class_name):
         """

@@ -58,7 +58,7 @@ class MaskResultsDock(QDockWidget):
 
         self.restore_selected_ids(selected_ids)
 
-    def refresh_table(self, image_path):
+    def refresh_table(self):
         self.populate_table()
 
     def _set_item(self, row, column, text, editable=True, color=None):

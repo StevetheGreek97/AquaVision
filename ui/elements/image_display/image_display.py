@@ -9,6 +9,7 @@ from core.tools.intellignent_scissors import IntelligentScissors
 import cv2
 import numpy as np
 
+from PyQt6.QtWidgets import QApplication
 
 
 
@@ -211,21 +212,17 @@ class ImageDisplay(QGraphicsView):
         if event.key() == Qt.Key.Key_S:
             if self.parent.tool_manager.current_tool:
                 self.parent.tool_manager.current_tool.complete_mask()
-                # ✅ After saving the mask, update the Annotations table
-                if hasattr(self.parent, 'annotations') and self.parent.annotations.isVisible():
-                    self.parent.annotations.refresh_table(self.parent.state_manager.current_image_path)
 
-                # ✅ After saving the mask, update the Statistics plot
-                if hasattr(self.parent, 'statistics') and self.parent.statistics.isVisible():
-                    self.parent.statistics.refresh_plot()
 
         if event.key() == Qt.Key.Key_E:
-            if isinstance(self.parent.tool_manager.current_tool, SamMasker2):
-                a = self.parent.tool_manager.current_tool.generate_mask(self.parent.state_manager.current_image)
-            if isinstance(self.parent.tool_manager.current_tool, SamBoxMasker):
-                a = self.parent.tool_manager.current_tool.generate_mask(self.parent.state_manager.current_image)
-            if isinstance(self.parent.tool_manager.current_tool, DEXTRMasker):
-                a = self.parent.tool_manager.current_tool.generate_mask(self.parent.state_manager.current_image)
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+            try:
+                tool = self.parent.tool_manager.current_tool
+                if isinstance(tool, (SamMasker2, SamBoxMasker, DEXTRMasker)):
+                    tool.generate_mask(self.parent.state_manager.current_image)
+            finally:
+                QApplication.restoreOverrideCursor()
+
 
     def wheelEvent(self, event):
         """
@@ -298,7 +295,7 @@ class ImageDisplay(QGraphicsView):
             elif isinstance(tool, SamBoxMasker):
                 tool.box_start = point
                 tool.is_drawing_box = True
-                print(f"📏 Started Box at {point}")
+ 
 
         elif event.button() == Qt.MouseButton.RightButton:
             tool = self.parent.tool_manager.current_tool

@@ -6,10 +6,13 @@ from PyQt6.QtCore import QSize
 from PyQt6.QtWidgets import QMessageBox
 import re
 from services.file_handlers import get_tooltip
+from PyQt6.QtCore import pyqtSignal
+
 class Sidebar(QWidget):
     """
     Sidebar UI component for navigation, drawing controls, and class-color management.
     """
+
 
     def __init__(self, parent):
         super().__init__()
@@ -189,6 +192,7 @@ class Sidebar(QWidget):
         # ✅ Refresh the dropdown
         self.populate_class_dropdown()
 
+
     def _create_icon_button(self, fa_icon_name, callback, tooltip=None, label=None):
         button = QPushButton(label or "")
         if fa_icon_name:
@@ -241,9 +245,6 @@ class Sidebar(QWidget):
         # ✅ Refresh the image display
         self.parent.image_display.display_image(self.parent.state_manager.current_image_path, preserve_zoom=True)
 
-        # ✅ Refresh the results table if it's open
-        if hasattr(self.parent, 'results_dialog') and self.parent.results_dialog.isVisible():
-            self.parent.results_dialog.refresh_table(self.parent.state_manager.current_image_path)
 
 
 
