@@ -1,9 +1,9 @@
-from PyQt6.QtWidgets import QComboBox, QDockWidget, QVBoxLayout, QWidget, QTableWidget, QTableWidgetItem
-from PyQt6.QtCore import pyqtSignal, Qt
-from PyQt6.QtGui import QBrush
-
-import cv2
-import numpy as np
+from PyQt6.QtWidgets import (
+    QComboBox, QDockWidget, QVBoxLayout, QWidget, QTableWidget, QTableWidgetItem,
+    QHBoxLayout, QLineEdit, QLabel, QSizePolicy
+)
+from PyQt6.QtCore import pyqtSignal, Qt, QTimer
+from PyQt6.QtGui import QBrush, QPixmap, QIcon
 
 class MaskResultsDock(QDockWidget):
     masks_selected = pyqtSignal(list)
@@ -13,125 +13,264 @@ class MaskResultsDock(QDockWidget):
         self.parent = parent
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
-        self.table_widget = QWidget()
-        self.layout = QVBoxLayout(self.table_widget)
-        self.setWidget(self.table_widget)
+        # Throttle/Coalesce refresh
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.setSingleShot(True)
+        self._refresh_timer.timeout.connect(self._populate_table_impl)
 
-        self.table = QTableWidget(self.table_widget)
+        # --- Root container
+        self.card = QWidget()
+        self.card_layout = QVBoxLayout(self.card)
+        self.card_layout.setContentsMargins(10, 10, 10, 10)
+        self.card_layout.setSpacing(8)
+        self.setWidget(self.card)
+
+        # --- Toolbar (filter + class filter)
+        toolbar = QHBoxLayout()
+        toolbar.setSpacing(8)
+
+        self.search = QLineEdit(placeholderText="Search…")
+        self.search.textChanged.connect(self.apply_filters)
+        self.search.setClearButtonEnabled(True)
+        self.search.setMinimumWidth(160)
+
+        self.class_filter = QComboBox()
+        self.class_filter.addItem("All classes")
+        self.class_filter.currentIndexChanged.connect(self.apply_filters)
+
+        toolbar.addWidget(self.search, 2)
+        toolbar.addWidget(self.class_filter, 1)
+        self.card_layout.addLayout(toolbar)
+
+        # --- Table
+        self.table = QTableWidget(self.card)
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["Image Name", "Mask ID", "Surface Area", "Class"])
         self.table.setSelectionMode(QTableWidget.SelectionMode.MultiSelection)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        #self.table.itemChanged.connect(self.on_item_changed)
+        self.table.setAlternatingRowColors(True)
+        self.table.setSortingEnabled(True)
         self.table.itemSelectionChanged.connect(self.on_selection_changed)
 
-        self.layout.addWidget(self.table)
+        header = self.table.horizontalHeader()
+        header.setStretchLastSection(True)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setShowGrid(False)
+        self.table.setWordWrap(False)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
 
+        self.card_layout.addWidget(self.table)
+
+        # --- Status line
+        self.status = QLabel("0 rows")
+        self.status.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.card_layout.addWidget(self.status)
+
+        # Signals (use throttled refresh)
         self.parent.state_manager.image_changed.connect(self.refresh_table)
+        self.parent.state_manager.masks_updated.connect(self.refresh_table)
 
         # Dock settings
         self.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
-        self.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable | QDockWidget.DockWidgetFeature.DockWidgetMovable | QDockWidget.DockWidgetFeature.DockWidgetFloatable)
+        self.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetClosable
+            | QDockWidget.DockWidgetFeature.DockWidgetMovable
+            | QDockWidget.DockWidgetFeature.DockWidgetFloatable
+        )
 
-    def populate_table(self):
-        """
-        Populate or refresh the table while keeping selection.
-        """
+        self._apply_styles()
+
+    # ------------------------------ Public refresh API (throttled) ----------
+    def refresh_table(self, *_, delay_ms: int = 50):
+        # Coalesce rapid updates into one table rebuild
+        self._refresh_timer.start(delay_ms)
+
+    # ------------------------------ Populate / Refresh (impl) ---------------
+    def _populate_table_impl(self):
         selected_ids = self.get_current_selected_ids()
 
-        self.table.setRowCount(0)
-        masks = self.parent.state_manager.mask_manager.load_masks(self.parent.state_manager.current_image_name)
-        image_name = self.parent.state_manager.current_image_name
+        self._refresh_class_filter()
 
-        for mask_id, mask, class_name, surface_area in masks:
-            
-            color = self.parent.state_manager.class_manager.get_class_color(class_name)
+        self.table.setSortingEnabled(False)
+        self.table.blockSignals(True)
+        try:
+            self.table.setRowCount(0)
 
-            row = self.table.rowCount()
-            self.table.insertRow(row)
+            image_name = self.parent.state_manager.current_image_name
+            if not image_name:
+                self.update_status(0)
+                self.table.setSortingEnabled(True)
+                self.table.blockSignals(False)
+                return
 
-            self._set_item(row, 0, image_name, editable=False)
-            self._set_item(row, 1, str(mask_id), editable=False)
-            self._set_item(row, 2, f"{surface_area:.2f}" if surface_area else "0.00", editable=False)
-            self._set_combo(row, 3, class_name)
+            masks = self.parent.state_manager.mask_manager.load_masks(image_name)
 
+            for mask_id, mask, class_name, surface_area in masks:
+                row = self.table.rowCount()
+                self.table.insertRow(row)
+                self._set_item(row, 0, image_name, editable=False)
+                self._set_item(row, 1, str(mask_id), editable=False)
+                self._set_item(row, 2, f"{(surface_area or 0):.2f}", editable=False)
+                self._set_class_cell(row, 3, class_name)
+
+            # Resize columns
+            for col in (0, 1, 2):
+                self.table.resizeColumnToContents(col)
+
+        finally:
+            self.table.blockSignals(False)
+            self.table.setSortingEnabled(True)
 
         self.restore_selected_ids(selected_ids)
+        self.apply_filters()
 
-    def refresh_table(self):
-        self.populate_table()
-
+    # ------------------------------ Helpers ---------------------------------
     def _set_item(self, row, column, text, editable=True, color=None):
         item = QTableWidgetItem(text)
         if color:
             item.setForeground(QBrush(color))
         if not editable:
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        if column in (1, 2):
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         self.table.setItem(row, column, item)
 
-    def get_current_selected_ids(self):
-        """
-        Save the currently selected mask IDs to restore later.
-        """
-        selected_ids = set()
-        for item in self.table.selectedItems():
-            if item.column() == 1:
-                selected_ids.add(item.text())
-        return selected_ids
+    def _make_color_icon(self, qcolor, size=12):
+        pm = QPixmap(size, size)
+        pm.fill(qcolor)
+        return QIcon(pm)
 
-    def restore_selected_ids(self, selected_ids):
-        """
-        Reselect the previously selected mask IDs after refresh.
-        """
-        for row in range(self.table.rowCount()):
-            mask_id = self.table.item(row, 1).text()
-            if mask_id in selected_ids:
-                self.table.selectRow(row)
-
-    def on_selection_changed(self):
-        selected_rows = []
-        for item in self.table.selectedItems():
-            if item.column() == 1:
-                row = item.row()
-                row_data = {
-                    "image_name": self.table.item(row, 0).text(),
-                    "mask_id": self.table.item(row, 1).text(),
-                    "class": self.table.cellWidget(row, 3).currentText()
-
-                }
-                selected_rows.append(row_data)
-
-        self.masks_selected.emit(selected_rows)
-
-    def _set_combo(self, row, column, current_class):
+    def _set_class_cell(self, row, column, current_class):
         combo = QComboBox()
-        class_names = self.parent.state_manager.class_manager.get_all_class_names()
+        combo.setProperty("tableCombo", True)
 
-        # Populate dropdown with colored items
+        class_names = self.parent.state_manager.class_manager.get_all_class_names()
         for class_name in class_names:
             color = self.parent.state_manager.class_manager.get_class_color(class_name)
-            combo.addItem(class_name)
-            index = combo.findText(class_name)
-            combo.setItemData(index, QBrush(color), Qt.ItemDataRole.ForegroundRole)
+            combo.addItem(self._make_color_icon(color), class_name)
 
         combo.setCurrentText(current_class)
-
-        # ✅ Force initial display to match class color
-        current_index = combo.findText(current_class)
-        current_color = self.parent.state_manager.class_manager.get_class_color(current_class)
-        combo.setItemData(current_index, QBrush(current_color), Qt.ItemDataRole.ForegroundRole)
 
         def on_class_changed(new_class):
             mask_id = int(self.table.item(row, 1).text())
             image_name = self.table.item(row, 0).text()
-
             self.parent.state_manager.mask_manager.rename_mask(image_name, mask_id, new_class)
-
-            # ✅ Refresh overlay to reflect new color
+            # Single overlay/stat refresh is coalesced by MainApp/InferenceManager
             self.parent.image_display.refresh_masks()
-
-            if hasattr(self.parent, 'statistics'):
+            if hasattr(self.parent, 'statistics') and self.parent.statistics.isVisible():
                 self.parent.statistics.refresh_plot()
 
         combo.currentTextChanged.connect(on_class_changed)
         self.table.setCellWidget(row, column, combo)
+
+    def _refresh_class_filter(self):
+        current = self.class_filter.currentText() if self.class_filter.count() else "All classes"
+        self.class_filter.blockSignals(True)
+        self.class_filter.clear()
+        self.class_filter.addItem("All classes")
+        for name in self.parent.state_manager.class_manager.get_all_class_names():
+            self.class_filter.addItem(name)
+        idx = self.class_filter.findText(current)
+        self.class_filter.setCurrentIndex(idx if idx >= 0 else 0)
+        self.class_filter.blockSignals(False)
+
+    def get_current_selected_ids(self):
+        ids = set()
+        for item in self.table.selectedItems():
+            if item.column() == 1:
+                ids.add(item.text())
+        return ids
+
+    def restore_selected_ids(self, selected_ids):
+        self.table.blockSignals(True)
+        try:
+            for row in range(self.table.rowCount()):
+                mask_id = self.table.item(row, 1).text()
+                if mask_id in selected_ids:
+                    self.table.selectRow(row)
+        finally:
+            self.table.blockSignals(False)
+
+    def on_selection_changed(self):
+        rows = {i.row() for i in self.table.selectedIndexes()}
+        selected_rows = []
+        for row in rows:
+            row_data = {
+                "image_name": self.table.item(row, 0).text(),
+                "mask_id": self.table.item(row, 1).text(),
+                "class": self._current_class_text(row),
+            }
+            selected_rows.append(row_data)
+        self.masks_selected.emit(selected_rows)
+
+    def _current_class_text(self, row):
+        w = self.table.cellWidget(row, 3)
+        return w.currentText() if isinstance(w, QComboBox) else self.table.item(row, 3).text()
+
+    def apply_filters(self):
+        text = self.search.text().strip().lower()
+        cls = self.class_filter.currentText()
+
+        visible = 0
+        for row in range(self.table.rowCount()):
+            img = self.table.item(row, 0).text().lower()
+            mask_id = self.table.item(row, 1).text().lower()
+            area = self.table.item(row, 2).text().lower()
+            klass = self._current_class_text(row)
+
+            matches_text = (text in img) or (text in mask_id) or (text in area) or (text in klass.lower())
+            matches_class = (cls == "All classes") or (klass == cls)
+
+            show = (matches_text and matches_class)
+            self.table.setRowHidden(row, not show)
+            if show:
+                visible += 1
+
+        self.update_status(visible)
+
+    def update_status(self, visible_count=None):
+        total = self.table.rowCount()
+        if visible_count is None:
+            visible_count = sum(not self.table.isRowHidden(r) for r in range(total))
+        self.status.setText(f"{visible_count} / {total} rows")
+
+    # ------------------------------ Style -----------------------------------
+    def _apply_styles(self):
+        self.card.setStyleSheet("""
+        QWidget { font-size: 12.5px; background: transparent; }
+        QTableWidget {
+            background: palette(base);
+            border: 1px solid rgba(120,120,120,60);
+            border-radius: 12px;
+            gridline-color: transparent;
+            selection-background-color: rgba(56,132,255,180);
+            selection-color: white;
+            alternate-background-color: rgba(125,125,125,30);
+        }
+        QHeaderView::section {
+            background: rgba(125,125,125,35);
+            border: 0px;
+            padding: 8px 10px;
+            font-weight: 600;
+            border-top-left-radius: 10px;
+            border-top-right-radius: 10px;
+            border-bottom: 1px solid rgba(120,120,120,60);
+        }
+        QTableWidget::item { padding: 6px; }
+        QLineEdit {
+            border: 1px solid rgba(120,120,120,60);
+            border-radius: 10px;
+            padding: 6px 10px;
+            background: rgba(125,125,125,25);
+        }
+        QLineEdit:focus {
+            border: 1px solid rgba(56,132,255,200);
+            background: rgba(56,132,255,10);
+        }
+        QComboBox[tableCombo="true"] {
+            border: 1px solid rgba(120,120,120,60);
+            border-radius: 8px;
+            padding: 2px 8px;
+            background: rgba(125,125,125,20);
+        }
+        """)

@@ -10,11 +10,15 @@ class ProgressDialogManager:
         :param cancel_callback: Callback function to execute on cancel.
         """
         self.progress_dialog = QProgressDialog(display_text, "Cancel", 0, total_items, parent)
-        self.progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+        #self.progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
         self.progress_dialog.setValue(0)
 
         # Connect cancel button to the provided callback
         self.progress_dialog.canceled.connect(cancel_callback)
+        self.progress_dialog.setWindowModality(Qt.WindowModality.NonModal)
+        self.progress_dialog.setMinimumDuration(0)   # show immediately without blocking
+        self.progress_dialog.setAutoClose(True)
+        self.progress_dialog.setAutoReset(True)
 
     def update_progress(self, current_value):
         """

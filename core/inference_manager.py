@@ -1,12 +1,10 @@
+from PyQt6.QtCore import QObject, QTimer
 from ui.dialogs.progress import ProgressDialogManager
 from core.inference_thread import InferenceThread
-from PyQt6.QtCore import QObject
 from PyQt6.QtGui import QColor
-import numpy as np
-import os
-import random
-class InferenceManager(QObject):
+import random, os
 
+class InferenceManager(QObject):
     def __init__(self, parent, mode, display_text):
         super().__init__()
         self.parent = parent
@@ -15,21 +13,27 @@ class InferenceManager(QObject):
         self.progress_manager = None
         self.inference_thread = None
 
+        # Coalesce UI updates coming from many images
+        self._ui_refresh_timer = QTimer(self)
+        self._ui_refresh_timer.setSingleShot(True)
+        self._ui_refresh_timer.timeout.connect(self._do_ui_refresh)
+
+        self._need_overlay_refresh = False
+        self._need_stats_refresh = False
+        self._need_class_dropdown_refresh = False
 
     def run_inference(self, model_path, image_files, conf):
-        """
-        Start the inference process with the provided model and images.
-        """
         if not image_files:
             print("No image files provided for inference.")
             return
 
-        # Initialize the inference thread
+        if self.inference_thread and self.inference_thread.isRunning():
+            self.stop_inference()
+
         self.inference_thread = InferenceThread(model_path, image_files, mode=self.mode, conf=conf)
         self.inference_thread.inference_completed.connect(self.on_inference_progress)
         self.inference_thread.finished.connect(self.finalize_progress)
 
-        # Initialize the progress dialog manager
         self.progress_manager = ProgressDialogManager(
             self.parent,
             total_items=len(image_files),
@@ -37,65 +41,70 @@ class InferenceManager(QObject):
             display_text=self.display_text,
         )
 
-        # Start the thread
-        print("Starting inference thread...")
         self.inference_thread.start()
 
     def stop_inference(self):
-        """
-        Stop the inference thread gracefully.
-        """
         if self.inference_thread and self.inference_thread.isRunning():
-            print("Stopping inference thread...")
-            self.inference_thread.stop()  # Graceful stop
-            self.inference_thread.wait()  # Ensure thread completes
-            print("Inference thread stopped.")
-
-        # Ensure the progress dialog is closed
+            self.inference_thread.stop()
+            self.inference_thread.wait()
         if self.progress_manager:
             self.progress_manager.close()
 
-    def on_inference_progress(self, image_path, masks, image, class_names):
+    def on_inference_progress(self, image_path, masks, class_names):
         """
-        Handle progress updates during inference.
+        Called once per image from the worker thread (Qt queued connection).
+        Keep this light: save to DB, flag what needs UI refresh, then schedule one UI pass.
         """
         image_name = os.path.splitext(os.path.basename(image_path))[0]
 
+        # Save masks
         for mask, class_name in zip(masks, class_names):
+            if mask is None:
+                continue
+            if getattr(mask, "size", 0) < 2:
+                continue
+            # NOTE: expect mask as Nx2 coordinates array (float) from Ultralytics
+            self.parent.state_manager.mask_manager.save_mask(mask, image_name, class_name)
 
-            
-            if  mask is not None and  mask.size > 0: # Checking if the np.ndarray is empty
-                
-                 self.parent.state_manager.mask_manager.save_mask(mask, image_name, class_name)
-
-            # Check if the class already exists in the StateManager
+            # Ensure the class exists (don’t repopulate dropdown yet)
             if class_name not in self.parent.state_manager.class_manager.get_all_class_names():
+                rand = QColor(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+                self.parent.state_manager.class_manager.add_class(class_name, rand)
+                self._need_class_dropdown_refresh = True
 
-                # Assign a random color
-                random_color = QColor(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
-                
-                # Add the new class with its color
-        
-                self.parent.state_manager.class_manager.add_class(class_name, random_color)
-                
-                print(f"Added new class '{class_name}' with color {random_color.name()}")
-                
-                self.parent.sidebar.populate_class_dropdown()
+        # Flag one overlay/stat refresh (coalesced)
+        self._need_overlay_refresh = True
+        self._need_stats_refresh = True
 
-        # Update the progress dialog
-        current_value = self.progress_manager.progress_dialog.value() + 1
-        self.progress_manager.update_progress(current_value)
+        # Progress
+        if self.progress_manager:
+            cur = self.progress_manager.progress_dialog.value() + 1
+            self.progress_manager.update_progress(cur)
+
+        # Schedule a single UI refresh after a short delay to absorb bursts
+        self._ui_refresh_timer.start(60)
+
+    def _do_ui_refresh(self):
+        if self._need_class_dropdown_refresh and hasattr(self.parent, "sidebar"):
+            self.parent.sidebar.populate_class_dropdown()
+        if self._need_overlay_refresh and hasattr(self.parent, "image_display"):
+            self.parent.image_display.refresh_masks()
+        if self._need_stats_refresh and hasattr(self.parent, "statistics") and self.parent.statistics.isVisible():
+            self.parent.statistics.refresh_plot()
+
+        # Let the table rebuild on its own throttled path
+        if hasattr(self.parent, "annotations") and self.parent.annotations.isVisible():
+            self.parent.annotations.refresh_table(delay_ms=80)
+
+        # reset flags
+        self._need_class_dropdown_refresh = False
+        self._need_overlay_refresh = False
+        self._need_stats_refresh = False
 
     def finalize_progress(self):
-        """
-        Finalize the progress dialog and clean up the thread.
-        """
         if self.progress_manager:
             self.progress_manager.close()
-
-        # Clean up the thread
         if self.inference_thread and self.inference_thread.isRunning():
             self.inference_thread.wait()
-
         self.inference_thread = None
         print("Inference completed and cleaned up.")

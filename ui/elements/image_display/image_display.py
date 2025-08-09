@@ -43,6 +43,7 @@ class ImageDisplay(QGraphicsView):
         self.setRenderHints(QPainter.RenderHint.SmoothPixmapTransform | QPainter.RenderHint.Antialiasing)
         self.setMouseTracking(True)
 
+        self.cached_image_with_masks = None
 
     def display_image(self, image_path, preserve_zoom=False):
         """
@@ -106,6 +107,9 @@ class ImageDisplay(QGraphicsView):
         """
         Overlay highlights (white outlines) on top of cached base mask image.
         """
+        if self.cached_image_with_masks is None:
+            return
+
         image = self.cached_image_with_masks.copy()
         masks = self.parent.state_manager.mask_manager.load_masks(self.parent.state_manager.current_image_name)
 
@@ -122,16 +126,17 @@ class ImageDisplay(QGraphicsView):
         """
         Sync selected rows from the table and highlight all of them.
         """
-        #  Instead of trusting the input list blindly, re-read all selected rows
+        annotations = getattr(self.parent, "annotations", None)
+        if annotations is None or not hasattr(annotations, "table"):
+            return
+
         selected_ids = []
-        for item in self.parent.annotations.table.selectedItems():
-            if item.column() == 1:  # Mask ID column
+        for item in annotations.table.selectedItems():
+            if item and item.column() == 1:  # Mask ID column
                 selected_ids.append(item.text())
 
         self.highlighted_mask_ids = selected_ids
         self.highlight_selected_masks(self.highlighted_mask_ids)
-
-
 
     def _update_pixmap(self, image):
         """
@@ -187,22 +192,24 @@ class ImageDisplay(QGraphicsView):
         self.highlighted_mask_ids = []
         self.refresh_masks()
 
-
-
     def wheelEvent(self, event):
-        zoom_in_factor = 1.15  # this factor was from your original refactored version
-        zoom_out_factor = 1 / zoom_in_factor
-
-        if event.angleDelta().y() > 0:
-            zoom_factor = zoom_in_factor
-        else:
-            zoom_factor = zoom_out_factor
-
-        self.scale(zoom_factor, zoom_factor)
-
-        # Update zoom factor (keeping within limits)
-        self._zoom_factor = max(self._zoom_min, min(self._zoom_max, self._zoom_factor * zoom_factor))
-
+        """
+        Zoom in or out using the mouse wheel, with zoom limits.
+        """
+        if event.angleDelta().y() > 0:  # zoom in
+            if self._zoom_factor < self._zoom_max:
+                step = 1.1
+                # prevent overshoot
+                step = min(step, self._zoom_max / self._zoom_factor)
+                self.scale(step, step)
+                self._zoom_factor *= step
+        else:  # zoom out
+            if self._zoom_factor > self._zoom_min:
+                step = 1 / 1.1
+                # prevent overshoot
+                step = max(step, self._zoom_min / self._zoom_factor)
+                self.scale(step, step)
+                self._zoom_factor *= step
         event.accept()
 
     def keyPressEvent(self, event):
@@ -213,7 +220,6 @@ class ImageDisplay(QGraphicsView):
             if self.parent.tool_manager.current_tool:
                 self.parent.tool_manager.current_tool.complete_mask()
 
-
         if event.key() == Qt.Key.Key_E:
             QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
             try:
@@ -222,24 +228,6 @@ class ImageDisplay(QGraphicsView):
                     tool.generate_mask(self.parent.state_manager.current_image)
             finally:
                 QApplication.restoreOverrideCursor()
-
-
-    def wheelEvent(self, event):
-        """
-        Zoom in or out using the mouse wheel, with zoom limits.
-        """
-        zoom_step = 1.1  # Scale factor for zooming
-        if event.angleDelta().y() > 0:
-            # Zoom in
-            if self._zoom_factor < self._zoom_max:
-                self.scale(zoom_step, zoom_step)
-                self._zoom_factor *= zoom_step
-        else:
-            # Zoom out
-            if self._zoom_factor > self._zoom_min:
-                zoom_step = 1 / zoom_step
-                self.scale(zoom_step, zoom_step)
-                self._zoom_factor *= zoom_step
 
     def mousePressEvent(self, event):
         """
@@ -251,38 +239,63 @@ class ImageDisplay(QGraphicsView):
             selected_mask_ids = self.get_clicked_masks(point)
 
             if selected_mask_ids:
-                print(f"Clicked on masks: {selected_mask_ids}")
-
                 # Update highlight list (avoid duplicates)
                 for mask_id in selected_mask_ids:
                     if mask_id not in self.highlighted_mask_ids:
                         self.highlighted_mask_ids.append(mask_id)
 
-                # ✅ FAST update (no full image redraw)
+                # Fast update (no full image redraw)
                 self.highlight_selected_masks(self.highlighted_mask_ids)
 
-                # Ensure results dialog is open
-                if not hasattr(self.parent, 'annotations') or not self.parent.annotations.isVisible():
-                    self.parent.show_results()
+                # Ensure results dialog is open and usable
+                annotations = getattr(self.parent, "annotations", None)
+                if annotations is None or not (hasattr(annotations, "isVisible") and annotations.isVisible()):
+                    if hasattr(self.parent, "show_results"):
+                        self.parent.show_results()
+                    annotations = getattr(self.parent, "annotations", None)
 
-                self.parent.annotations.table.setSelectionMode(QTableWidget.SelectionMode.MultiSelection)
+                # If it still isn't available, bail safely
+                if annotations is None or not hasattr(annotations, "table"):
+                    return
+
+                table = annotations.table
+
+                # Populate on first open if empty
+                try:
+                    if table.rowCount() == 0:
+                        if hasattr(annotations, "refresh_table"):
+                            try:
+                                annotations.refresh_table(self.parent.state_manager.current_image_path)
+                            except TypeError:
+                                annotations.refresh_table()
+                except Exception as e:
+                    print(f"Could not refresh annotations table: {e}")
+
+                table.setSelectionMode(QTableWidget.SelectionMode.MultiSelection)
 
                 # Select rows in the annotations table
                 selected_rows = []
-                for row in range(self.parent.annotations.table.rowCount()):
-                    table_mask_id = self.parent.annotations.table.item(row, 1).text()
-                    if table_mask_id in selected_mask_ids:
-                        self.parent.annotations.table.selectRow(row)
-                        selected_rows.append({
-                            "image_name": self.parent.annotations.table.item(row, 0).text(),
-                            "mask_id": table_mask_id,
-                            "class": self.parent.annotations.table.cellWidget(row, 3).currentText(),
+                for row in range(table.rowCount()):
+                    item_img = table.item(row, 0)
+                    item_id = table.item(row, 1)
+                    if item_id and item_id.text() in selected_mask_ids:
+                        table.selectRow(row)
 
+                        # robust class text getter
+                        cls_widget = table.cellWidget(row, 3)
+                        cls_item = table.item(row, 3)
+                        cls_text = cls_widget.currentText() if cls_widget else (cls_item.text() if cls_item else "")
+
+                        selected_rows.append({
+                            "image_name": item_img.text() if item_img else "",
+                            "mask_id": item_id.text(),
+                            "class": cls_text,
                         })
 
-                if selected_rows:
-                    self.parent.annotations.masks_selected.emit(selected_rows)
+                if selected_rows and hasattr(annotations, "masks_selected"):
+                    annotations.masks_selected.emit(selected_rows)
 
+            # Tool-specific interactions
             tool = self.parent.tool_manager.current_tool
             if isinstance(tool, ManualMask):
                 tool.add_point(point)
@@ -295,7 +308,6 @@ class ImageDisplay(QGraphicsView):
             elif isinstance(tool, SamBoxMasker):
                 tool.box_start = point
                 tool.is_drawing_box = True
- 
 
         elif event.button() == Qt.MouseButton.RightButton:
             tool = self.parent.tool_manager.current_tool
@@ -328,19 +340,19 @@ class ImageDisplay(QGraphicsView):
             event.accept()
         else:
             super().mouseMoveEvent(event)
+
         scene_pos = self.mapToScene(event.position().toPoint())
         point = (int(scene_pos.x()), int(scene_pos.y()))
 
-
-        self.x, self.y = int(scene_pos.x()), int(scene_pos.y())
+        self.x, self.y = point
 
         tool = self.parent.tool_manager.current_tool
         if isinstance(tool, IntelligentScissors):
-            if tool.seed_points:
+            if getattr(tool, "seed_points", None):
                 tool.update_dynamic_path((self.x, self.y))
 
         if isinstance(tool, SamBoxMasker):
-            if tool.is_drawing_box:
+            if getattr(tool, "is_drawing_box", False):
                 tool.update_box_preview(tool.box_start, point)
                 print(f"📏 Updating Box: {tool.box_start} → {point}")
 
@@ -352,12 +364,11 @@ class ImageDisplay(QGraphicsView):
         point = (int(scene_pos.x()), int(scene_pos.y()))
 
         if event.button() == Qt.MouseButton.LeftButton:
-             if isinstance(self.parent.tool_manager.current_tool, SamBoxMasker):
-                if self.parent.tool_manager.current_tool.is_drawing_box:
-                    self.parent.tool_manager.current_tool.add_box(self.parent.tool_manager.current_tool.box_start, point)
-                    print(f"✅ Finalized Box: {self.parent.tool_manager.current_tool.box}")
-                    self.parent.tool_manager.current_tool.is_drawing_box = False  # ✅ Reset drawing flag
-
+            tool = self.parent.tool_manager.current_tool
+            if isinstance(tool, SamBoxMasker) and getattr(tool, "is_drawing_box", False):
+                tool.add_box(tool.box_start, point)
+                print(f"✅ Finalized Box: {tool.box_start} → {point}")
+                tool.is_drawing_box = False  # Reset drawing flag
 
         if event.button() == Qt.MouseButton.MiddleButton:
             self._is_panning = False
@@ -365,7 +376,7 @@ class ImageDisplay(QGraphicsView):
             event.accept()
         else:
             super().mouseReleaseEvent(event)
-    
+
     def get_clicked_masks(self, click_point):
         """
         Identify all masks that contain the clicked point.
@@ -385,4 +396,3 @@ class ImageDisplay(QGraphicsView):
                 clicked_masks.append(str(mask_id))  # Convert ID to string for consistency
 
         return clicked_masks
-        
