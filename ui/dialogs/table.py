@@ -21,6 +21,7 @@ class MaskResultsDock(QDockWidget):
         # --- Root container
         self.card = QWidget()
         self.card_layout = QVBoxLayout(self.card)
+        self.card.setObjectName("DockCard")
         self.card_layout.setContentsMargins(10, 10, 10, 10)
         self.card_layout.setSpacing(8)
         self.setWidget(self.card)
@@ -234,43 +235,101 @@ class MaskResultsDock(QDockWidget):
             visible_count = sum(not self.table.isRowHidden(r) for r in range(total))
         self.status.setText(f"{visible_count} / {total} rows")
 
-    # ------------------------------ Style -----------------------------------
     def _apply_styles(self):
-        self.card.setStyleSheet("""
-        QWidget { font-size: 12.5px; background: transparent; }
-        QTableWidget {
-            background: palette(base);
-            border: 1px solid rgba(120,120,120,60);
+        self.setStyleSheet("""
+        /* Card inside the dock */
+        QWidget#DockCard {
+            background-color: palette(Base);
+            border: 1px solid palette(Mid);
             border-radius: 12px;
-            gridline-color: transparent;
-            selection-background-color: rgba(56,132,255,180);
-            selection-color: white;
-            alternate-background-color: rgba(125,125,125,30);
         }
-        QHeaderView::section {
-            background: rgba(125,125,125,35);
-            border: 0px;
-            padding: 8px 10px;
-            font-weight: 600;
-            border-top-left-radius: 10px;
-            border-top-right-radius: 10px;
-            border-bottom: 1px solid rgba(120,120,120,60);
+
+        /* Menus */
+        QMenu {
+            background-color: palette(Base);
+            color: palette(Text);
+            border: 1px solid palette(Mid);
+            padding: 4px 0;
         }
-        QTableWidget::item { padding: 6px; }
+        QMenu::item { padding: 6px 14px; }
+        QMenu::item:selected {
+            background-color: palette(Highlight);
+            color: palette(HighlightedText);
+        }
+        QMenu::separator {
+            height: 1px; margin: 4px 8px;
+            background-color: palette(Mid);
+        }
+
+        /* Tool buttons */
+        QToolButton {
+            border: 1px solid palette(Mid);
+            border-radius: 8px;
+            padding: 6px 8px;
+            background-color: palette(Button);
+            color: palette(ButtonText);
+        }
+        QToolButton:hover { background-color: palette(Midlight); }
+
+        /* ComboBoxes (including cell editors) */
+        QComboBox {
+            border: 1px solid palette(Mid);
+            border-radius: 8px;
+            padding: 6px 10px;
+            background-color: palette(Base);
+            color: palette(Text);
+        }
+        QComboBox:hover { background-color: palette(AlternateBase); }
+        QComboBox QAbstractItemView, QComboBox QAbstractItemView::viewport {
+            background-color: palette(Base);
+            color: palette(Text);
+            border: 1px solid palette(Mid);
+            outline: none;
+        }
+        QComboBox QAbstractItemView::item { padding: 6px 10px; }
+        QComboBox QAbstractItemView::item:selected {
+            background-color: palette(Highlight);
+            color: palette(HighlightedText);
+        }
+        QComboBox::drop-down {
+            subcontrol-origin: padding;
+            subcontrol-position: top right;
+            width: 24px;
+            border-left: 1px solid palette(Mid);
+            background-color: palette(Midlight);
+        }
+
+        /* Inputs */
         QLineEdit {
-            border: 1px solid rgba(120,120,120,60);
+            border: 1px solid palette(Mid);
             border-radius: 10px;
             padding: 6px 10px;
-            background: rgba(125,125,125,25);
+            background-color: palette(Base);
+            color: palette(Text);
         }
         QLineEdit:focus {
-            border: 1px solid rgba(56,132,255,200);
-            background: rgba(56,132,255,10);
+            border: 1px solid palette(Highlight);
+            background-color: palette(AlternateBase);
         }
-        QComboBox[tableCombo="true"] {
-            border: 1px solid rgba(120,120,120,60);
-            border-radius: 8px;
-            padding: 2px 8px;
-            background: rgba(125,125,125,20);
+
+        /* Table + viewport (prevents black table in light mode) */
+        QTableWidget, QTableView, QAbstractItemView {
+            background-color: palette(Base);
+            color: palette(Text);
+            selection-background-color: palette(Highlight);
+            selection-color: palette(HighlightedText);
+            alternate-background-color: palette(AlternateBase);
+            gridline-color: palette(Mid);
         }
+        QHeaderView::section {
+            background-color: palette(Button);
+            color: palette(ButtonText);
+            border: 0px;
+            padding: 4px 6px;
+        }
+
+        /* Tiny table combos */
+        QComboBox[tableCombo="true"] { padding: 2px 8px; }
+
+        QWidget { font-size: 12.5px; }
         """)

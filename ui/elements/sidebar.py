@@ -31,6 +31,10 @@ class Sidebar(QWidget):
         card_layout.setContentsMargins(12, 12, 12, 12)
         card_layout.setSpacing(12)
 
+
+
+
+
         root.addWidget(self.card)
 
         # --- Sections --------------------------------------------------------
@@ -386,99 +390,41 @@ class Sidebar(QWidget):
     # Styles
     # ----------------------------------------------------------------------
     def _apply_styles(self):
-        # Light/dark friendly palette — adjust base colors to match your app theme
         self.setStyleSheet("""
-        QWidget {
-            font-size: 12.5px;
-        }
+        QWidget { font-size: 12.5px; }
 
-        QFrame#SidebarCard {
-            background: palette(base);
-            border: 1px solid rgba(120, 120, 120, 60);
-            border-radius: 14px;
-        }
+        /* Card */
 
-        /* Section headers */
-        QLabel#SectionTitle {
-            font-weight: 600;
-            letter-spacing: 0.3px;
-            color: palette(text);
-        }
-        QLabel#SectionDot {
-            background: qlineargradient(x1:0,y1:0,x2:1,y2:1,
-                        stop:0 rgba(0,0,0,35), stop:1 rgba(0,0,0,10));
-            border-radius: 4px;
-        }
-
-        QFrame#Separator {
-            color: rgba(120, 120, 120, 70);
-            background: rgba(120, 120, 120, 40);
-            height: 1px;
-        }
-
+      
         /* Buttons */
         QPushButton {
-            border: 1px solid rgba(120,120,120,60);
+            border: 1px solid palette(Mid);
             border-radius: 10px;
             padding: 6px 10px;
-            color: palette(text);
-            background: rgba(125,125,125,25);
+            color: palette(ButtonText);
+            background-color: palette(Button);
         }
-        QPushButton:hover {
-            background: rgba(125,125,125,45);
-        }
-        QPushButton:pressed {
-            background: rgba(125,125,125,60);
-        }
+        QPushButton:hover { background-color: palette(Midlight); }
+        QPushButton:pressed { background-color: palette(Dark); }
 
-        /* Variants */
+        /* Variants (keep branded colors) */
         QPushButton[variant="primary"] {
-            background: qlineargradient(x1:0,y1:0,x2:1,y2:1,
-                        stop:0 rgba(56, 132, 255, 220),
-                        stop:1 rgba(56, 132, 255, 180));
-            border: 1px solid rgba(56,132,255, 220);
+            background-color: rgba(56,132,255,220);
+            border: 1px solid rgba(56,132,255,220);
             color: white;
         }
         QPushButton[variant="primary"]:hover {
-            background: qlineargradient(x1:0,y1:0,x2:1,y2:1,
-                        stop:0 rgba(56,132,255, 240),
-                        stop:1 rgba(56,132,255, 210));
+            background-color: rgba(56,132,255,240);
         }
-
         QPushButton[variant="danger"] {
-            background: rgba(220, 40, 60, 180);
-            border: 1px solid rgba(220, 40, 60, 220);
+            background-color: rgba(220,40,60,200);
+            border: 1px solid rgba(220,40,60,220);
             color: white;
         }
         QPushButton[variant="danger"]:hover {
-            background: rgba(220, 40, 60, 210);
+            background-color: rgba(220,40,60,220);
         }
 
-        /* Toggle buttons */
-        QPushButton[variant="toggle"] {
-            background: rgba(125,125,125,25);
-        }
-        QPushButton[variant="toggle"]:checked {
-            background: qlineargradient(x1:0,y1:0,x2:1,y2:1,
-                        stop:0 rgba(80, 200, 140, 220),
-                        stop:1 rgba(80, 200, 160, 180));
-            border: 1px solid rgba(60, 170, 120, 220);
-            color: white;
-        }
-        QPushButton[variant="toggle"]:checked:hover {
-            background: qlineargradient(x1:0,y1:0,x2:1,y2:1,
-                        stop:0 rgba(80, 200, 140, 240),
-                        stop:1 rgba(80, 200, 160, 210));
-        }
 
-        /* Dropdown */
-        QComboBox#ClassDropdown {
-            border: 1px solid rgba(120,120,120,60);
-            border-radius: 10px;
-            padding: 6px 10px;
-            background: rgba(125,125,125,25);
-        }
-        QComboBox#ClassDropdown:hover {
-            background: rgba(125,125,125,45);
-        }
+
         """)
