@@ -393,10 +393,7 @@ class Sidebar(QWidget):
         self.setStyleSheet("""
         QWidget { font-size: 12.5px; }
 
-        /* Card */
-
-      
-        /* Buttons */
+        /* Buttons (existing) */
         QPushButton {
             border: 1px solid palette(Mid);
             border-radius: 10px;
@@ -407,7 +404,7 @@ class Sidebar(QWidget):
         QPushButton:hover { background-color: palette(Midlight); }
         QPushButton:pressed { background-color: palette(Dark); }
 
-        /* Variants (keep branded colors) */
+        /* Variants (existing) */
         QPushButton[variant="primary"] {
             background-color: rgba(56,132,255,220);
             border: 1px solid rgba(56,132,255,220);
@@ -425,6 +422,24 @@ class Sidebar(QWidget):
             background-color: rgba(220,40,60,220);
         }
 
+        /* === Toggle tools (NEW): default + checked (blue) === */
+        QPushButton[variant="toggle"] {
+            /* default/unchecked look */
+            background-color: palette(Button);
+            color: palette(ButtonText);
+            border: 1px solid palette(Mid);
+        }
+        QPushButton[variant="toggle"]:hover {
+            background-color: palette(Midlight);
+        }
 
-
+        /* Active tool turns blue */
+        QPushButton[variant="toggle"]:checked {
+            background-color: rgba(56,132,255,220);
+            border: 1px solid rgba(56,132,255,220);
+            color: white;
+        }
+        QPushButton[variant="toggle"]:checked:hover {
+            background-color: rgba(56,132,255,240);
+        }
         """)
