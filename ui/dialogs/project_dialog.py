@@ -3,9 +3,10 @@ from PyQt6.QtWidgets import (
     QListWidgetItem, QFileDialog, QMessageBox, QLineEdit, QProgressBar,
     QAbstractItemView, QStyle
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QColor, QPalette
-from services.recent_projects import load_recent_projects
+from services.recent_projects import load_recent_projects, remove_recent_project, delete_project_and_remove_recent
+from ui.recent_item import RecentItemWidget
 import shutil, os, re, pathlib, platform
 
 # ---------- Helpers: theme-aware stylesheet ----------
@@ -28,10 +29,8 @@ def _build_stylesheet(widget) -> str:
     # Carefully chosen neutrals for both modes
     card      = QColor(28, 28, 30) if dark else QColor(255, 255, 255)
     border    = QColor(60, 60, 65) if dark else QColor(225, 225, 230)
-    hairline  = QColor(48, 48, 52) if dark else QColor(240, 240, 245)
     hover     = QColor(40, 40, 44) if dark else QColor(246, 246, 248)
     muted     = QColor(170, 170, 175) if dark else QColor(105, 105, 110)
-    # Accessible accent with good contrast in both modes
     accent    = QColor(99, 163, 255) if dark else QColor(33, 108, 214)
     accent_fg = QColor(0, 0, 0) if dark else QColor(255, 255, 255)
 
@@ -46,51 +45,44 @@ def _build_stylesheet(widget) -> str:
     QLabel#title {{
         font-size: 22px; font-weight: 600; letter-spacing: 0.2px;
     }}
-    QLabel#subtitle {{
-        color: {muted.name()}; margin-top: 2px;
-    }}
+    QLabel#subtitle {{ color: {muted.name()}; margin-top: 2px; }}
     QLabel#section {{
         margin-top: 14px; margin-bottom: 6px;
         font-weight: 600; color: {muted.name()};
         letter-spacing: 0.3px; font-size: 11.5pt;
     }}
 
-    /* Buttons */
+    /* General buttons */
     QPushButton {{
         background: {card.name()};
         border: 1px solid {border.name()};
         border-radius: 12px;
         padding: 10px 14px;
-        text-align: left;
+        min-width: 96px;
+        color: {fg.name()};
     }}
     QPushButton:hover {{ border-color: {accent.name()}; background: {_rgba(hover, 255)}; }}
     QPushButton:pressed {{ transform: translateY(1px); }}
+
+    /* Primary (highlighted) buttons */
     QPushButton#primary {{
-        background: {accent.name()}; color: {accent_fg.name()};
+        background: {accent.name()};
+        color: {accent_fg.name()};
         border: 1px solid {accent.name()};
     }}
     QPushButton#primary:hover {{ background: {_rgba(accent, 230)}; }}
 
-    /* Recent list */
-    QListWidget {{
-        border: 1px solid {border.name()};
-        border-radius: 12px;
-        background: {card.name()};
-        padding: 6px;
-    }}
-    QListWidget::item {{
-        border-radius: 8px; padding: 10px;
-        margin: 2px;
-    }}
-    QListWidget::item:hover {{
-        background: {_rgba(hover, 255)};
-    }}
-    QListWidget::item:selected {{
-        background: {_rgba(accent, 36)}; color: {fg.name()};
-        border: 1px solid {accent.name()};
+    /* Compact action buttons (Open/Delete in recents) */
+    QPushButton#action {{
+        padding: 4px 10px;
+        min-width: 60px;
+        border-radius: 8px;
+        font-size: 10pt;
+        text-align: center;
     }}
 
-    /* Inputs in sub-dialog */
+
+    /* Inputs */
     QLineEdit {{
         border: 1px solid {border.name()};
         border-radius: 10px;
@@ -221,7 +213,9 @@ class CreateProjectDialog(QDialog):
     def _finalize(self):
         base_dir = pathlib.Path(self.path_input.text()).expanduser().resolve()
         name = self.name_input.text().strip()
-
+        if not self.img_list.file_list:
+            QMessageBox.warning(self, "No Images", "You must import at least one image to continue.")
+            return
         if not name:
             QMessageBox.warning(self, "Missing Name", "Please enter a project name.")
             return
@@ -308,18 +302,65 @@ class ProjectStartupDialog(QDialog):
         self._populate_recents()
 
     # ------- Actions -------
-
     def _populate_recents(self):
         self.recent.clear()
-        for path in load_recent_projects():
-            if not os.path.exists(path):
-                continue
-            project_name = os.path.basename(os.path.dirname(os.path.dirname(path)))
-            item = QListWidgetItem(project_name)              # show only the name
-            item.setData(Qt.ItemDataRole.UserRole, path)      # keep path hidden for opening
+
+        db_paths = load_recent_projects()  # now auto-sanitizes
+        if not db_paths:
+            empty = QListWidgetItem("No recent projects found.")
+            empty.setFlags(empty.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            self.recent.addItem(empty)
+            return
+
+        for db_path in db_paths:
+            # Derive a nice display name from the expected structure
+            project_root = os.path.dirname(os.path.dirname(db_path))
+            project_name = os.path.basename(project_root) or "Project"
+
+            item = QListWidgetItem()
+            item.setData(Qt.ItemDataRole.UserRole, db_path)
+            item.setSizeHint(QSize(item.sizeHint().width(), 48))
+
+            widget = RecentItemWidget(
+                project_name=project_name,
+                db_path=db_path,
+                on_open=self._open_recent_by_path,
+                on_delete=self._delete_recent_by_path,
+                parent=self.recent
+            )
+
             self.recent.addItem(item)
+            self.recent.setItemWidget(item, widget)
+            item.setSizeHint(widget.sizeHint())
 
+    def _open_recent_by_path(self, db_path: str):
+        if not os.path.exists(db_path):
+            QMessageBox.warning(self, "Missing Project", "This project no longer exists. It will be removed from the list.")
+            remove_recent_project(db_path)
+            self._populate_recents()
+            return
+        self.selected_project_path = db_path
+        self.is_new_project = False
+        self.accept()
 
+    def _delete_recent_by_path(self, db_path: str):
+        resp = QMessageBox.question(
+            self, "Delete Project?",
+            "This will permanently delete the project folder and remove it from the list.\nContinue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if resp != QMessageBox.StandardButton.Yes:
+            return
+
+        ok = delete_project_and_remove_recent(db_path)
+        if not ok:
+            QMessageBox.critical(self, "Delete Failed", "Couldn’t delete the project folder. The recent entry was removed.")
+        self._populate_recents()
+
+    def _open_recent_item(self, item: QListWidgetItem):
+        # still works if user double-clicks the row
+        db_path = item.data(Qt.ItemDataRole.UserRole)
+        self._open_recent_by_path(db_path)
     def _create_project(self):
         dlg = CreateProjectDialog(self)
         if dlg.exec() == QDialog.DialogCode.Accepted:

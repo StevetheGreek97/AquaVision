@@ -1,45 +1,116 @@
 from pathlib import Path
-import json
-import platform
-import os
 from core.config import ProjectConfigManager
 from services.file_handlers import loader
 from PyQt6.QtWidgets import QMessageBox, QFileDialog
 from PyQt6.QtCore import QTimer
 
 
-def get_recent_file():
+# services/recent_projects.py
+
+import json, os, platform, shutil, datetime
+from typing import List
+
+APP_DIR_NAME = "segmentme"
+RECENT_FILE_NAME = "recent.json"
+BACKUP_SUFFIX = ".bak"
+
+def _app_support_dir() -> Path:
     if platform.system() == "Windows":
-        base = Path(os.getenv("APPDATA")) / "segmentme"
-    elif platform.system() == "Darwin":  # macOS
-        base = Path.home() / "Library" / "Application Support" / "segmentme"
+        base = Path(os.getenv("APPDATA", Path.home() / "AppData" / "Roaming"))
+        return base / APP_DIR_NAME
+    elif platform.system() == "Darwin":
+        return Path.home() / "Library" / "Application Support" / APP_DIR_NAME
     else:
-        base = Path.home() / ".config" / "segmentme"
+        return Path.home() / ".config" / APP_DIR_NAME
 
+def get_recent_file() -> Path:
+    base = _app_support_dir()
     base.mkdir(parents=True, exist_ok=True)
-    print(f"Recent projects will be stored in: {base / 'recent.json'}")
-    return base / "recent.json"
+    return base / RECENT_FILE_NAME
 
-
-def load_recent_projects():
-    recent_file = get_recent_file()
-    if recent_file.exists():
+def _read_json_safely(p: Path):
+    if not p.exists():
+        return []
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        # Ensure it’s a list of strings
+        if isinstance(data, list):
+            return [str(x) for x in data if isinstance(x, str)]
+        return []
+    except Exception:
+        # backup corrupt file and reset
+        ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         try:
-            return json.loads(recent_file.read_text())
+            p.rename(p.with_suffix(p.suffix + f".{ts}{BACKUP_SUFFIX}"))
         except Exception:
             pass
-    return []
+        return []
 
+def _write_json_safely(p: Path, items: List[str]):
+    p.write_text(json.dumps(items, indent=2), encoding="utf-8")
 
-def save_recent_project(path):
-    path = str(Path(path))  # Normalize path format
-    projects = load_recent_projects()
-    if path in projects:
-        projects.remove(path)
-    projects.insert(0, path)
-    projects = projects[:5]  # Keep the 5 most recent
-    get_recent_file().write_text(json.dumps(projects, indent=2))
+def _project_root_from_db(db_path: str) -> Path:
+    # db_path -> .../<project>/.segmentme/masks.db
+    return Path(db_path).resolve().parent.parent
 
+def load_recent_projects() -> List[str]:
+    """
+    Returns a *clean* list of existing db paths.
+    Also rewrites recent.json to drop missing entries.
+    """
+    f = get_recent_file()
+    items = _read_json_safely(f)
+    existing = []
+    changed = False
+    for p in items:
+        if os.path.exists(p):
+            existing.append(p)
+        else:
+            changed = True
+    if changed:
+        _write_json_safely(f, existing)
+    return existing
+
+def all_recent_projects_raw() -> List[str]:
+    """
+    Raw list (may include non-existing). For UI cleanup routines.
+    """
+    return _read_json_safely(get_recent_file())
+
+def save_recent_project(db_path: str):
+    db_path = str(Path(db_path).resolve())
+    items = _read_json_safely(get_recent_file())
+    if db_path in items:
+        items.remove(db_path)
+    items.insert(0, db_path)
+    # de-duplicate & cap length if you want (e.g., 20)
+    seen, dedup = set(), []
+    for x in items:
+        if x not in seen:
+            seen.add(x)
+            dedup.append(x)
+    _write_json_safely(get_recent_file(), dedup[:50])
+
+def remove_recent_project(db_path: str):
+    db_path = str(Path(db_path).resolve())
+    items = _read_json_safely(get_recent_file())
+    if db_path in items:
+        items.remove(db_path)
+        _write_json_safely(get_recent_file(), items)
+
+def delete_project_and_remove_recent(db_path: str) -> bool:
+    """
+    Deletes the project folder (…/<project>) if it exists and removes the entry.
+    Returns True if folder was deleted or didn’t exist; False on failure.
+    """
+    try:
+        root = _project_root_from_db(db_path)
+        remove_recent_project(db_path)
+        if root.exists():
+            shutil.rmtree(root)
+        return True
+    except Exception:
+        return False
 
 def initialize_project(main_window, db_path):
     """
@@ -72,5 +143,3 @@ def initialize_project(main_window, db_path):
         main_window.slider.set_image_count(len(image_paths))
         main_window.image_display.display_image(main_window.state_manager.current_image_path)
         QTimer.singleShot(0, main_window.image_display.fit_to_view) 
-    else:
-        QMessageBox.information(main_window, "No Images", "No images found in the selected folder.")

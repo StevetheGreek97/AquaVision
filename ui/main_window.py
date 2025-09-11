@@ -98,7 +98,8 @@ class MainApp(QMainWindow):
         if not files:
             return
 
-        # NOTE: assumes self.config is set elsewhere in your app init.
+        # NOTE: assumes self.config is set in the services.recent_projects.initialize_project 
+        # I know it should be cleaner, but quick workaround for now.
         images_dir = self.config.get_images_dir()
         os.makedirs(images_dir, exist_ok=True)
 

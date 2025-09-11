@@ -17,6 +17,7 @@ class MenuBar(QMenuBar):
         """
         super().__init__(parent)
         self.parent = parent
+        self.setNativeMenuBar(False)  # For cross-platform consistency
 
         # Initialize Menus
         self._init_file_menu()
