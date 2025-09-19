@@ -1,12 +1,270 @@
-from PyQt6.QtWidgets import (
-    QComboBox, QDockWidget, QVBoxLayout, QWidget, QTableWidget, QTableWidgetItem,
-    QHBoxLayout, QLineEdit, QLabel, QSizePolicy
-)
-from PyQt6.QtCore import pyqtSignal, Qt, QTimer
-from PyQt6.QtGui import QBrush, QPixmap, QIcon
+# ui/dialogs/table.py
 
+from PyQt6.QtWidgets import (
+    QDockWidget, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QSizePolicy,
+    QTableView, QComboBox, QAbstractItemView, QStyledItemDelegate
+)
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QModelIndex, QSortFilterProxyModel
+from PyQt6.QtGui import QIcon, QPixmap, QColor
+
+import time
+from contextlib import contextmanager
+
+# --- Back-compat shim for code expecting QTableWidget.selectedItems() ----
+class _FakeItem:
+    """Minimal stand-in for QTableWidgetItem with column() and text()."""
+    def __init__(self, col: int, text: str):
+        self._col = col
+        self._text = text
+    def column(self) -> int:
+        return self._col
+    def text(self) -> str:
+        return self._text
+
+from PyQt6.QtWidgets import QTableView
+class SelectionView(QTableView):
+    """
+    QTableView with a back-compat .selectedItems(), .rowCount(), and .item()
+    so existing QTableWidget-style callers keep working.
+    We only really need col=1 (Mask ID), but item() works for any column.
+    """
+    def __init__(self, dock, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._dock = dock  # access to _proxy and _model
+
+    # --- Back-compat: QTableWidget.selectedItems() ---
+    def selectedItems(self):
+        items = []
+        sel = self.selectionModel().selectedRows()  # indexes in proxy
+        for proxy_idx in sel:
+            src_idx = self._dock._proxy.mapToSource(proxy_idx)
+            row = self._dock._model.row_at(src_idx.row())
+            items.append(_FakeItem(1, str(row.mask_id)))
+        return items
+
+    # --- Back-compat: QTableWidget.rowCount() ---
+    def rowCount(self):
+        m = self.model()
+        return m.rowCount() if m is not None else 0
+
+    # --- Back-compat: QTableWidget.item(row, col) ---
+    def item(self, row: int, column: int):
+        m = self.model()
+        if m is None or row < 0 or row >= m.rowCount():
+            return None
+        idx = m.index(row, column)
+        # fetch display data from proxy model (since view is using proxy)
+        val = m.data(idx, Qt.ItemDataRole.DisplayRole)
+        return _FakeItem(column, "" if val is None else str(val))
+
+# ----------------------------- tiny timing helper -----------------------------
+@contextmanager
+def _t(section, bucket: dict):
+    t0 = time.perf_counter()
+    try:
+        yield
+    finally:
+        bucket[section] = bucket.get(section, 0.0) + (time.perf_counter() - t0)
+
+
+# ----------------------------- Table Model -----------------------------------
+class MaskTableModelData:
+    """
+    Simple row container to keep the code readable.
+    """
+    __slots__ = ("image_name", "mask_id", "surface_area", "klass")
+
+    def __init__(self, image_name: str, mask_id: int, surface_area: float | None, klass: str | None):
+        self.image_name = image_name
+        self.mask_id = int(mask_id)
+        self.surface_area = 0.0 if surface_area is None else float(surface_area)
+        self.klass = "" if klass is None else str(klass)
+
+
+from PyQt6.QtCore import QAbstractTableModel, QVariant
+
+
+class MaskTableModel(QAbstractTableModel):
+    """
+    Lightweight model for annotations.
+    Edits are allowed only for the 'Class' column.
+    """
+    classChanged = pyqtSignal(str, int, str)  # image_name, mask_id, new_class
+
+    HEADERS = ["Image Name", "Mask ID", "Surface Area", "Class"]
+
+    COL_IMAGE = 0
+    COL_ID = 1
+    COL_AREA = 2
+    COL_CLASS = 3
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._rows: list[MaskTableModelData] = []
+
+    # ---------------- required overrides -----------------
+    def rowCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() else len(self._rows)
+
+    def columnCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() else 4
+
+    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
+        if role != Qt.ItemDataRole.DisplayRole:
+            return None
+        if orientation == Qt.Orientation.Horizontal:
+            return self.HEADERS[section]
+        return section + 1
+
+    def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole):
+        if not index.isValid():
+            return None
+        r, c = index.row(), index.column()
+        row = self._rows[r]
+
+        if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
+            if c == self.COL_IMAGE:
+                return row.image_name
+            elif c == self.COL_ID:
+                return str(row.mask_id)
+            elif c == self.COL_AREA:
+                return f"{row.surface_area:.2f}"
+            elif c == self.COL_CLASS:
+                return row.klass
+
+        # Center numeric columns visually
+        if role == Qt.ItemDataRole.TextAlignmentRole and c in (self.COL_ID, self.COL_AREA):
+            return int(Qt.AlignmentFlag.AlignCenter)
+
+        return None
+
+    def flags(self, index: QModelIndex):
+        if not index.isValid():
+            return Qt.ItemFlag.NoItemFlags
+        base = Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled
+        if index.column() == self.COL_CLASS:
+            return base | Qt.ItemFlag.ItemIsEditable
+        return base
+
+    def setData(self, index: QModelIndex, value, role=Qt.ItemDataRole.EditRole):
+        if role != Qt.ItemDataRole.EditRole or not index.isValid():
+            return False
+        if index.column() != self.COL_CLASS:
+            return False
+
+        r = index.row()
+        row = self._rows[r]
+        new_class = str(value)
+        if row.klass == new_class:
+            return True
+
+        row.klass = new_class
+        self.dataChanged.emit(index, index, [Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole])
+        # Notify listeners (dock) to persist to DB & refresh overlays/plots.
+        self.classChanged.emit(row.image_name, int(row.mask_id), new_class)
+        return True
+
+    # ---------------- convenience API -------------------
+    def set_rows(self, rows: list[MaskTableModelData]):
+        self.beginResetModel()
+        self._rows = rows
+        self.endResetModel()
+
+    def row_at(self, row_idx: int) -> MaskTableModelData:
+        return self._rows[row_idx]
+
+
+# ----------------------------- Filter/Sort Proxy ------------------------------
+class MaskFilterProxy(QSortFilterProxyModel):
+    """
+    Text search across all columns + class filter.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._text = ""
+        self._class = None  # None => all classes, else exact match
+        self.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+
+    def setSearchText(self, text: str):
+        t = (text or "").strip()
+        if t == self._text:
+            return
+        self._text = t
+        self.invalidateFilter()
+
+    def setClassFilter(self, klass: str | None):
+        v = None if (not klass or klass == "All classes") else klass
+        if v == self._class:
+            return
+        self._class = v
+        self.invalidateFilter()
+
+    def filterAcceptsRow(self, source_row: int, source_parent: QModelIndex) -> bool:
+        model: MaskTableModel = self.sourceModel()  # type: ignore
+        idx_img = model.index(source_row, MaskTableModel.COL_IMAGE, source_parent)
+        idx_id = model.index(source_row, MaskTableModel.COL_ID, source_parent)
+        idx_area = model.index(source_row, MaskTableModel.COL_AREA, source_parent)
+        idx_class = model.index(source_row, MaskTableModel.COL_CLASS, source_parent)
+
+        # Class filter
+        if self._class is not None:
+            klass = model.data(idx_class, Qt.ItemDataRole.DisplayRole) or ""
+            if klass != self._class:
+                return False
+
+        # Text search across all textual columns
+        if not self._text:
+            return True
+
+        txt = self._text.lower()
+        vals = [
+            (model.data(idx_img) or "").lower(),
+            (model.data(idx_id) or "").lower(),
+            (model.data(idx_area) or "").lower(),
+            (model.data(idx_class) or "").lower(),
+        ]
+        return any(txt in v for v in vals)
+
+
+# ----------------------------- delegate for Class col -------------------------
+class ClassComboDelegate(QStyledItemDelegate):
+    """
+    Provides a QComboBox editor only while editing the 'Class' column.
+    No per-row widget overhead.
+    """
+    def __init__(self, class_manager, icon_cache, parent=None):
+        super().__init__(parent)
+        self.cm = class_manager
+        self.icon_cache = icon_cache
+
+    def createEditor(self, parent, option, index: QModelIndex):
+        # Only column 3 gets a combo editor
+        if index.column() != MaskTableModel.COL_CLASS:
+            return super().createEditor(parent, option, index)
+
+        combo = QComboBox(parent)
+        for cls in self.cm.get_all_class_names():
+            combo.addItem(self.icon_cache.get(cls), cls)
+        return combo
+
+    def setEditorData(self, editor, index):
+        if isinstance(editor, QComboBox):
+            current = index.data(Qt.ItemDataRole.EditRole) or index.data()
+            i = editor.findText(current)
+            editor.setCurrentIndex(max(i, 0))
+        else:
+            super().setEditorData(editor, index)
+
+    def setModelData(self, editor, model, index):
+        if isinstance(editor, QComboBox):
+            model.setData(index, editor.currentText(), Qt.ItemDataRole.EditRole)
+        else:
+            super().setModelData(editor, model, index)
+
+
+# --------------------------------- main dock ----------------------------------
 class MaskResultsDock(QDockWidget):
-    masks_selected = pyqtSignal(list)
+    masks_selected = pyqtSignal(list)  # list of dicts with image_name, mask_id, class
 
     def __init__(self, parent):
         super().__init__("Annotations", parent)
@@ -43,22 +301,39 @@ class MaskResultsDock(QDockWidget):
         toolbar.addWidget(self.class_filter, 1)
         self.card_layout.addLayout(toolbar)
 
-        # --- Table
-        self.table = QTableWidget(self.card)
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["Image Name", "Mask ID", "Surface Area", "Class"])
-        self.table.setSelectionMode(QTableWidget.SelectionMode.MultiSelection)
-        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        # --- Table (Model/View)
+        self.table = SelectionView(self, self.card) 
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setAlternatingRowColors(True)
         self.table.setSortingEnabled(True)
-        self.table.itemSelectionChanged.connect(self.on_selection_changed)
-
-        header = self.table.horizontalHeader()
-        header.setStretchLastSection(True)
+        self.table.setWordWrap(False)                           # NEW
+        self.table.verticalHeader().setDefaultSectionSize(22)  
         self.table.verticalHeader().setVisible(False)
-        self.table.setShowGrid(False)
-        self.table.setWordWrap(False)
-        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.horizontalHeader().setStretchLastSection(True)
+
+        # Model + Proxy
+        self._model = MaskTableModel(self.table)
+        self._proxy = MaskFilterProxy(self.table)
+        self._proxy.setSourceModel(self._model)
+        self.table.setModel(self._proxy)
+
+        # Delegate for column 3 (Class)
+        self._class_icon_cache = self._build_class_icon_cache()
+        self.table.setItemDelegateForColumn(
+            MaskTableModel.COL_CLASS,
+            ClassComboDelegate(
+                class_manager=self.parent.state_manager.class_manager,
+                icon_cache=self._class_icon_cache,
+                parent=self.table
+            )
+        )
+
+        # Persist edits coming from the model
+        self._model.classChanged.connect(self._commit_class_change)
+
+        # Selection signal
+        self.table.selectionModel().selectionChanged.connect(self.on_selection_changed)
 
         self.card_layout.addWidget(self.table)
 
@@ -81,89 +356,84 @@ class MaskResultsDock(QDockWidget):
 
         self._apply_styles()
 
-    # ------------------------------ Public refresh API (throttled) ----------
+    # ------------------------------ Helpers / setup ---------------------------
+    def _build_class_icon_cache(self):
+        cache = {}
+        cm = self.parent.state_manager.class_manager
+        for cls in cm.get_all_class_names():
+            qcol = cm.get_class_color(cls)
+            pm = QPixmap(12, 12)
+            pm.fill(qcol if isinstance(qcol, QColor) else QColor(qcol))
+            cache[cls] = QIcon(pm)
+        return cache
+
+    def _commit_class_change(self, image_name: str, mask_id: int, new_class: str):
+        # Persist to DB
+        self.parent.state_manager.mask_manager.rename_mask(image_name, mask_id, new_class)
+        # Light refreshes
+        self.parent.image_display.refresh_masks()
+        if hasattr(self.parent, 'statistics') and self.parent.statistics.isVisible():
+            self.parent.statistics.refresh_plot()
+
+    # ------------------------------ Public refresh API (throttled) -----------
     def refresh_table(self, *_, delay_ms: int = 50):
-        # Coalesce rapid updates into one table rebuild
         self._refresh_timer.start(delay_ms)
 
-    # ------------------------------ Populate / Refresh (impl) ---------------
+    # ------------------------------ Populate / Refresh (impl) ----------------
     def _populate_table_impl(self):
-        selected_ids = self.get_current_selected_ids()
+        stats = {}
+        with _t("total", stats):
 
-        self._refresh_class_filter()
+            selected_ids = self.get_current_selected_mask_ids()
 
-        self.table.setSortingEnabled(False)
-        self.table.blockSignals(True)
-        try:
-            self.table.setRowCount(0)
+            with _t("class_filter_refresh", stats):
+                self._refresh_class_filter()
 
-            image_name = self.parent.state_manager.current_image_name
-            if not image_name:
-                self.update_status(0)
-                self.table.setSortingEnabled(True)
-                self.table.blockSignals(False)
-                return
+            self.table.setUpdatesEnabled(False)
+            try:
+                image_name = self.parent.state_manager.current_image_name
+                if not image_name:
+                    self._model.set_rows([])
+                    self.update_status(0)
+                    return
 
-            masks = self.parent.state_manager.mask_manager.load_masks(image_name)
+                with _t("load_masks", stats):
+                    masks = self.parent.state_manager.mask_manager.load_masks(image_name)
+                    # expected tuples: (mask_id, _mask, class_name, surface_area)
 
-            for mask_id, mask, class_name, surface_area in masks:
-                row = self.table.rowCount()
-                self.table.insertRow(row)
-                self._set_item(row, 0, image_name, editable=False)
-                self._set_item(row, 1, str(mask_id), editable=False)
-                self._set_item(row, 2, f"{(surface_area or 0):.2f}", editable=False)
-                self._set_class_cell(row, 3, class_name)
+                with _t("build_rows", stats):
+                    rows = [MaskTableModelData(
+                        image_name=image_name,
+                        mask_id=mask_id,
+                        surface_area=surface_area,
+                        klass=class_name
+                    ) for (mask_id, _mask, class_name, surface_area) in masks]
+                    self._model.set_rows(rows)
 
-            # Resize columns
-            for col in (0, 1, 2):
-                self.table.resizeColumnToContents(col)
+                # Keep sort if user clicked a header previously
+                # (QTableView + QSortFilterProxyModel handles this efficiently)
 
-        finally:
-            self.table.blockSignals(False)
-            self.table.setSortingEnabled(True)
+            finally:
+                self.table.setUpdatesEnabled(True)
 
-        self.restore_selected_ids(selected_ids)
-        self.apply_filters()
+            with _t("restore_selection", stats):
+                self.restore_selected_mask_ids(selected_ids)
 
-    # ------------------------------ Helpers ---------------------------------
-    def _set_item(self, row, column, text, editable=True, color=None):
-        item = QTableWidgetItem(text)
-        if color:
-            item.setForeground(QBrush(color))
-        if not editable:
-            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-        if column in (1, 2):
-            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.table.setItem(row, column, item)
+            with _t("apply_filters", stats):
+                self.apply_filters()
 
-    def _make_color_icon(self, qcolor, size=12):
-        pm = QPixmap(size, size)
-        pm.fill(qcolor)
-        return QIcon(pm)
+        ms = lambda k: stats.get(k, 0.0) * 1000.0
+        print(
+            "[MaskResultsDock] table refresh fast:\n"
+            f"  total={ms('total'):.2f} ms\n"
+            f"    class_filter_refresh={ms('class_filter_refresh'):.2f} ms\n"
+            f"    load_masks={ms('load_masks'):.2f} ms\n"
+            f"    build_rows={ms('build_rows'):.2f} ms\n"
+            f"    restore_selection={ms('restore_selection'):.2f} ms\n"
+            f"    apply_filters={ms('apply_filters'):.2f} ms"
+        )
 
-    def _set_class_cell(self, row, column, current_class):
-        combo = QComboBox()
-        combo.setProperty("tableCombo", True)
-
-        class_names = self.parent.state_manager.class_manager.get_all_class_names()
-        for class_name in class_names:
-            color = self.parent.state_manager.class_manager.get_class_color(class_name)
-            combo.addItem(self._make_color_icon(color), class_name)
-
-        combo.setCurrentText(current_class)
-
-        def on_class_changed(new_class):
-            mask_id = int(self.table.item(row, 1).text())
-            image_name = self.table.item(row, 0).text()
-            self.parent.state_manager.mask_manager.rename_mask(image_name, mask_id, new_class)
-            # Single overlay/stat refresh is coalesced by MainApp/InferenceManager
-            self.parent.image_display.refresh_masks()
-            if hasattr(self.parent, 'statistics') and self.parent.statistics.isVisible():
-                self.parent.statistics.refresh_plot()
-
-        combo.currentTextChanged.connect(on_class_changed)
-        self.table.setCellWidget(row, column, combo)
-
+    # ------------------------------ Selection & filters -----------------------
     def _refresh_class_filter(self):
         current = self.class_filter.currentText() if self.class_filter.count() else "All classes"
         self.class_filter.blockSignals(True)
@@ -175,76 +445,69 @@ class MaskResultsDock(QDockWidget):
         self.class_filter.setCurrentIndex(idx if idx >= 0 else 0)
         self.class_filter.blockSignals(False)
 
-    def get_current_selected_ids(self):
-        ids = set()
-        for item in self.table.selectedItems():
-            if item.column() == 1:
-                ids.add(item.text())
+    def get_current_selected_mask_ids(self) -> set[str]:
+        ids: set[str] = set()
+        sel = self.table.selectionModel().selectedRows()  # indexes in proxy
+        for proxy_idx in sel:
+            src_idx = self._proxy.mapToSource(proxy_idx)
+            row = self._model.row_at(src_idx.row())
+            ids.add(str(row.mask_id))
         return ids
 
-    def restore_selected_ids(self, selected_ids):
-        self.table.blockSignals(True)
-        try:
-            for row in range(self.table.rowCount()):
-                mask_id = self.table.item(row, 1).text()
-                if mask_id in selected_ids:
-                    self.table.selectRow(row)
-        finally:
-            self.table.blockSignals(False)
+    def restore_selected_mask_ids(self, selected_ids: set[str]):
+        if not selected_ids:
+            return
+        self.table.selectionModel().clearSelection()
+        # iterate all source rows and select those whose mask_id is in the set
+        for src_row in range(self._model.rowCount()):
+            row = self._model.row_at(src_row)
+            if str(row.mask_id) in selected_ids:
+                src_idx = self._model.index(src_row, 0)
+                proxy_idx = self._proxy.mapFromSource(src_idx)
+                if proxy_idx.isValid():
+                    self.table.selectRow(proxy_idx.row())
 
-    def on_selection_changed(self):
-        rows = {i.row() for i in self.table.selectedIndexes()}
+    def on_selection_changed(self, *_):
+        sel = self.table.selectionModel().selectedRows()
         selected_rows = []
-        for row in rows:
-            row_data = {
-                "image_name": self.table.item(row, 0).text(),
-                "mask_id": self.table.item(row, 1).text(),
-                "class": self._current_class_text(row),
-            }
-            selected_rows.append(row_data)
+        for proxy_idx in sel:
+            src_idx = self._proxy.mapToSource(proxy_idx)
+            row = self._model.row_at(src_idx.row())
+            selected_rows.append({
+                "image_name": row.image_name,
+                "mask_id": str(row.mask_id),
+                "class": row.klass,
+            })
         self.masks_selected.emit(selected_rows)
 
-    def _current_class_text(self, row):
-        w = self.table.cellWidget(row, 3)
-        return w.currentText() if isinstance(w, QComboBox) else self.table.item(row, 3).text()
-
     def apply_filters(self):
-        text = self.search.text().strip().lower()
-        cls = self.class_filter.currentText()
+        t0 = time.perf_counter()
 
-        visible = 0
-        for row in range(self.table.rowCount()):
-            img = self.table.item(row, 0).text().lower()
-            mask_id = self.table.item(row, 1).text().lower()
-            area = self.table.item(row, 2).text().lower()
-            klass = self._current_class_text(row)
+        text = self.search.text()
+        klass = self.class_filter.currentText()
 
-            matches_text = (text in img) or (text in mask_id) or (text in area) or (text in klass.lower())
-            matches_class = (cls == "All classes") or (klass == cls)
+        self._proxy.setSearchText(text)
+        self._proxy.setClassFilter(klass)
 
-            show = (matches_text and matches_class)
-            self.table.setRowHidden(row, not show)
-            if show:
-                visible += 1
+        self.update_status()
+        print(
+            f"[MaskResultsDock] apply_filters: {(time.perf_counter()-t0)*1000:.2f} ms  "
+            f"(rows={self._model.rowCount()}, visible={self._proxy.rowCount()})"
+        )
 
-        self.update_status(visible)
+    def update_status(self):
+        total = self._model.rowCount()
+        visible = self._proxy.rowCount()
+        self.status.setText(f"{visible} / {total} rows")
 
-    def update_status(self, visible_count=None):
-        total = self.table.rowCount()
-        if visible_count is None:
-            visible_count = sum(not self.table.isRowHidden(r) for r in range(total))
-        self.status.setText(f"{visible_count} / {total} rows")
-
+    # ------------------------------ Styles -----------------------------------
     def _apply_styles(self):
         self.setStyleSheet("""
-        /* Card inside the dock */
         QWidget#DockCard {
             background-color: palette(Base);
             border: 1px solid palette(Mid);
             border-radius: 12px;
         }
-
-        /* Menus */
         QMenu {
             background-color: palette(Base);
             color: palette(Text);
@@ -260,8 +523,6 @@ class MaskResultsDock(QDockWidget):
             height: 1px; margin: 4px 8px;
             background-color: palette(Mid);
         }
-
-        /* Tool buttons */
         QToolButton {
             border: 1px solid palette(Mid);
             border-radius: 8px;
@@ -270,8 +531,6 @@ class MaskResultsDock(QDockWidget):
             color: palette(ButtonText);
         }
         QToolButton:hover { background-color: palette(Midlight); }
-
-        /* ComboBoxes (including cell editors) */
         QComboBox {
             border: 1px solid palette(Mid);
             border-radius: 8px;
@@ -298,8 +557,6 @@ class MaskResultsDock(QDockWidget):
             border-left: 1px solid palette(Mid);
             background-color: palette(Midlight);
         }
-
-        /* Inputs */
         QLineEdit {
             border: 1px solid palette(Mid);
             border-radius: 10px;
@@ -311,9 +568,7 @@ class MaskResultsDock(QDockWidget):
             border: 1px solid palette(Highlight);
             background-color: palette(AlternateBase);
         }
-
-        /* Table + viewport (prevents black table in light mode) */
-        QTableWidget, QTableView, QAbstractItemView {
+        QTableView, QAbstractItemView {
             background-color: palette(Base);
             color: palette(Text);
             selection-background-color: palette(Highlight);
@@ -324,12 +579,8 @@ class MaskResultsDock(QDockWidget):
         QHeaderView::section {
             background-color: palette(Button);
             color: palette(ButtonText);
-            border: 0px;
+            border: 0;
             padding: 4px 6px;
         }
-
-        /* Tiny table combos */
-        QComboBox[tableCombo="true"] { padding: 2px 8px; }
-
         QWidget { font-size: 12.5px; }
         """)
