@@ -226,13 +226,21 @@ class ImageDisplay(QGraphicsView):
             return
 
         mask_ids_to_delete = [int(mask_id) for mask_id in self.highlighted_mask_ids]
-        self.parent.state_manager.mask_manager.delete_mask(
+        info = self.parent.state_manager.mask_manager.delete_masks(
             self.parent.state_manager.current_image_name,
-            mask_ids_to_delete
+            mask_ids_to_delete,
+            profile=True
         )
-        self.parent.annotations.table.clearSelection()
+
+        # Clear selection locally; let the coalesced UI update handle repaint/table/plot
+        if hasattr(self.parent, 'annotations'):
+            self.parent.annotations.table.clearSelection()
         self.highlighted_mask_ids = []
         self.refresh_masks()
+
+        # Optionally log profiling info to your logger
+        from services.logger import logger
+        logger.info(f"Deleted {info['rows']} mask(s) in {info['ms']:.2f} ms over {info['chunks']} chunk(s)")
 
     # ---------- Events ----------
 
@@ -252,15 +260,19 @@ class ImageDisplay(QGraphicsView):
         if event.key() == Qt.Key.Key_S:
             if self.parent.tool_manager.current_tool:
                 self.parent.tool_manager.current_tool.complete_mask()
-                if hasattr(self.parent, 'annotations') and self.parent.annotations.isVisible():
+                if hasattr(self.parent, 'annotations') and self.parent.annotations is not None:
                     self.parent.annotations.refresh_table(self.parent.state_manager.current_image_path)
-                if hasattr(self.parent, 'statistics') and self.parent.statistics.isVisible():
+                if hasattr(self.parent, 'statistics') and self.parent.statistics is not None:
                     self.parent.statistics.refresh_plot()
 
         if event.key() == Qt.Key.Key_E:
-            tool = self.parent.tool_manager.current_tool
-            if isinstance(tool, (SamMasker2, SamBoxMasker, DEXTRMasker)):
-                tool.generate_mask(self.parent.state_manager.current_image)
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+            try:
+                tool = self.parent.tool_manager.current_tool
+                if isinstance(tool, (SamMasker2, SamBoxMasker, DEXTRMasker)):
+                    tool.generate_mask(self.parent.state_manager.current_image)
+            finally:
+                QApplication.restoreOverrideCursor()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -275,7 +287,7 @@ class ImageDisplay(QGraphicsView):
                 self.highlight_selected_masks(self.highlighted_mask_ids)
 
                 # Ensure results dialog is open
-                if not hasattr(self.parent, 'annotations') or not self.parent.annotations.isVisible():
+                if not hasattr(self.parent, 'annotations') or self.parent.annotations is None:
                     self.parent.show_results()
 
                 self.parent.annotations.table.setSelectionMode(QTableWidget.SelectionMode.MultiSelection)
