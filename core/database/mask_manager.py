@@ -1,5 +1,9 @@
 import numpy as np
 import cv2
+from time import perf_counter
+
+SQLITE_MAX_VARIABLES = 999  # conservative default; some builds allow 32766
+CHUNK_SIZE = 900 
 
 class MaskDatabaseManager:
     """
@@ -22,8 +26,7 @@ class MaskDatabaseManager:
             image_name (str): Name of the image the mask belongs to.
             class_name (str): Class name of the mask.
 
-        Returns:
-            int: ID of the newly saved mask.
+
         """
         surface_area = cv2.contourArea(mask.astype(np.int32))
         mask_bytes = mask.tobytes()  # Convert NumPy array to bytes
@@ -97,25 +100,49 @@ class MaskDatabaseManager:
         print("✅ Mask IDs successfully reindexed!")
         self.parent.masks_updated.emit()
 
-    def delete_mask(self, image_name, mask_ids):
+    def delete_masks(self, image_name: str, mask_ids, *, profile: bool = True) -> dict:
         """
-        Delete a specific mask or multiple masks from the database.
-
-        Args:
-            image_name (str): The name of the image the masks belong to.
-            mask_ids (int or list): The ID(s) of the mask(s) to delete.
+        Fast path: delete multiple masks in one transaction.
+        Returns profiling info: {'chunks': int, 'rows': int, 'ms': float}
         """
-        if isinstance(mask_ids, int):  # If a single ID is provided, convert to list
+        if isinstance(mask_ids, int):
             mask_ids = [mask_ids]
+        if not mask_ids:
+            return {'chunks': 0, 'rows': 0, 'ms': 0.0}
 
-        placeholders = ",".join("?" * len(mask_ids))  # Create a dynamic query placeholder (e.g., ?, ?, ?)
-        query = f"DELETE FROM masks WHERE image_name = ? AND id IN ({placeholders})"
+        t0 = perf_counter()
+        rows_total = 0
+        chunks = 0
 
-        self.db.execute_query(query, [image_name] + mask_ids)
-        self.reindex_masks()
+        # Begin a single transaction for all chunks
+        self.db.execute_query("BEGIN IMMEDIATE")
+
+        try:
+            # Process in chunks to avoid exceeding SQLite variable limits
+            for i in range(0, len(mask_ids), CHUNK_SIZE):
+                chunk = mask_ids[i:i+CHUNK_SIZE]
+                placeholders = ",".join("?" * len(chunk))
+                sql = f"DELETE FROM masks WHERE image_name = ? AND id IN ({placeholders})"
+                params = [image_name, *chunk]
+                rows = self.db.execute_query(sql, params)  # ensure your db layer supports this
+                rows_total += rows if rows is not None else 0
+                chunks += 1
+
+            self.db.execute_query("COMMIT")
+        except Exception:
+            self.db.execute_query("ROLLBACK")
+            raise
+        finally:
+            t1 = perf_counter()
+
+        # Emit once (let your MainApp’s coalesced timer handle heavy refresh)
         self.parent.masks_updated.emit()
 
-        print(f"✅ Deleted mask(s) with ID(s): {mask_ids} from image: {image_name}")
+        info = {'chunks': chunks, 'rows': rows_total, 'ms': (t1 - t0) * 1000.0}
+        if profile:
+            print(f"🗑️ delete_masks: {rows_total} rows in {chunks} chunk(s) "
+                f"→ {info['ms']:.2f} ms")
+        return info
 
     def delete_masks_by_class(self, class_name):
         """

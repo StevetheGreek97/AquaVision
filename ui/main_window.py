@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QFileDialog, QHBoxLayout, QApplication, QVBoxLayout, QMessageBox
+    QMainWindow, QWidget, QFileDialog, QHBoxLayout,QProgressDialog, QApplication, QVBoxLayout, QMessageBox
 )
-from PyQt6.QtCore import Qt, QEvent, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, QEvent, pyqtSignal, QTimer, QThread
 from PyQt6.QtGui import QIcon
 
 import os
@@ -29,8 +29,8 @@ from core.trainer.worker import TrainingWorker
 from services.file_handlers import loader, get_resource_path
 from services.logger import logger, log_memory_usage
 
-from PyQt6.QtCore import QThread
-
+from datetime import datetime
+from core.save_res import SaveResultsDBWorker
 
 class MainApp(QMainWindow):
     image_changed = pyqtSignal(str, object)
@@ -39,7 +39,7 @@ class MainApp(QMainWindow):
         super().__init__()
         self.setWindowTitle("SegmentME")
         self.resize(1000, 600)
-
+        self.db_path = db_path
         icon_path = get_resource_path("resources/icons/desktop.png")
         self.setWindowIcon(QIcon(icon_path))
 
@@ -299,3 +299,83 @@ class MainApp(QMainWindow):
         if self.inference_manager:
             self.inference_manager.stop_inference()
         event.accept()
+
+    def save_results_csv(self):
+            # 1) Count rows (for progress maximum)
+            db = self.state_manager.mask_manager.db
+            try:
+                total = db.fetch_one("SELECT COUNT(*) FROM masks")[0]
+            except Exception as e:
+                QMessageBox.critical(self, "Save Results", f"Could not count rows: {e}")
+                return
+
+            if total == 0:
+                QMessageBox.information(self, "Save Results", "No masks found in the database.")
+                return
+
+            # 2) Build output path in project root
+            project_root = self.state_manager.project_root
+            os.makedirs(project_root, exist_ok=True)
+            out_path = os.path.join(project_root, f"annotations_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+
+            # 3) Setup progress dialog
+            progress = QProgressDialog("Saving annotations from database...", "Cancel", 0, total, self)
+            progress.setWindowTitle("Saving")
+            progress.setWindowModality(Qt.WindowModality.WindowModal)
+            progress.setAutoClose(False)
+            progress.setAutoReset(False)
+            progress.setMinimumDuration(0)
+            progress.show()
+
+            # 4) Thread + Worker
+            self._save_db_thread = QThread(self)
+            self._save_db_worker = SaveResultsDBWorker(
+                db_path=self.db_path,
+                out_path=out_path,
+                where_sql="",      # put a WHERE clause here if you want to filter
+                params=(),
+                chunk_size=2000,   # tweak chunk size if you like
+            )
+            self._save_db_worker.moveToThread(self._save_db_thread)
+
+            self._save_db_thread.started.connect(self._save_db_worker.run)
+            self._save_db_worker.progress.connect(progress.setValue)
+
+            def _cleanup():
+                worker = getattr(self, "_save_db_worker", None)
+                thread = getattr(self, "_save_db_thread", None)
+                if worker:
+                    worker.deleteLater()
+                if thread and thread.isRunning():
+                    thread.quit()
+                    thread.wait()
+                if thread:
+                    thread.deleteLater()
+                self._save_db_worker = None
+                self._save_db_thread = None
+
+            def on_finished(path):
+                progress.setValue(total)
+                progress.close()
+                QMessageBox.information(self, "Save Results", f"✅ Saved to:\n{path}")
+                _cleanup()
+
+            def on_error(msg):
+                progress.close()
+                QMessageBox.critical(self, "Save Results", f"❌ Error: {msg}")
+                _cleanup()
+
+            def on_canceled():
+                progress.close()
+                QMessageBox.information(self, "Save Results", "✋ Save canceled.")
+                _cleanup()
+
+            self._save_db_worker.finished.connect(on_finished)
+            self._save_db_worker.error.connect(on_error)
+            self._save_db_worker.canceled.connect(on_canceled)
+
+            progress.canceled.connect(self._save_db_worker.cancel)
+            self._save_db_thread.finished.connect(_cleanup)
+
+            # 5) Go
+            self._save_db_thread.start()
