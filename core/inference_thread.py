@@ -7,12 +7,13 @@ class InferenceThread(QThread):
     # Emit: image_path, list_of_polygons (each Nx2 ndarray), list_of_class_names
     inference_completed = pyqtSignal(str, list, list)
 
-    def __init__(self, model_path, image_paths, mode, conf):
+    def __init__(self, model_path, image_paths, mode, conf, dims):
         super().__init__()
         self.model_path = model_path
         self.image_paths = image_paths
         self.mode = mode.lower()
         self.conf = conf
+        self.dims = dims
         self._is_running = True
 
     def run(self):
@@ -38,7 +39,7 @@ class InferenceThread(QThread):
 
                 image = Image.open(image_path).convert("RGB")
                 results = model.predict(
-                    image_path, save_txt=False, save_crop=False,
+                    image_path, save_txt=False, save_crop=False,imgsz=self.dims, 
                     verbose=False, conf=self.conf, iou=0.2, agnostic_nms=True
                 )
 

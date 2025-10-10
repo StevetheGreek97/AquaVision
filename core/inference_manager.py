@@ -22,7 +22,7 @@ class InferenceManager(QObject):
         self._need_stats_refresh = False
         self._need_class_dropdown_refresh = False
 
-    def run_inference(self, model_path, image_files, conf):
+    def run_inference(self, model_path, image_files, conf, dims):
         if not image_files:
             print("No image files provided for inference.")
             return
@@ -30,7 +30,7 @@ class InferenceManager(QObject):
         if self.inference_thread and self.inference_thread.isRunning():
             self.stop_inference()
 
-        self.inference_thread = InferenceThread(model_path, image_files, mode=self.mode, conf=conf)
+        self.inference_thread = InferenceThread(model_path, image_files, mode=self.mode, conf=conf, dims= dims)
         self.inference_thread.inference_completed.connect(self.on_inference_progress)
         self.inference_thread.finished.connect(self.finalize_progress)
 

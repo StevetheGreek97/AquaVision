@@ -81,7 +81,7 @@ class TrainingDialog(QDialog):
         form.addRow("Batch size:", self.batch_box)
 
         self.imgsz_box = QSpinBox()
-        self.imgsz_box.setRange(64, 2048)
+        self.imgsz_box.setRange(64, 20048)
         self.imgsz_box.setValue(640)
         form.addRow("Image size:", self.imgsz_box)
 
@@ -331,7 +331,7 @@ class TrainingDialog(QDialog):
             model=str(Path(self.models_dir) / self.model_selector.currentText()),
             data=str(Path(self.data_path_input.text())),
             epochs=self.epoch_box.value(),
-            batch=self.batch_box.value(),
+            batch=int(self.batch_box.value()),
             imgsz=self.imgsz_box.value(),
             device=self.detected_device,
             optimizer=self.optimizer_input.currentText(),

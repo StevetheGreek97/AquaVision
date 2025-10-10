@@ -152,6 +152,7 @@ class MainApp(QMainWindow):
         if dialog.exec():
             threshold = dialog.get_threshold()
             selected_model = dialog.get_selected_model()
+            img_dim = dialog.get_image_dimensions()
             if selected_model:
                 # If the dialog returns an absolute path for custom model, use it as-is.
                 self.current_model_path = (
@@ -169,7 +170,8 @@ class MainApp(QMainWindow):
                 self.inference_manager.run_inference(
                     self.current_model_path,
                     self.state_manager.image_paths,
-                    threshold
+                    threshold,
+                    img_dim
                 )
 
     # ---------- Docks / Results ----------
