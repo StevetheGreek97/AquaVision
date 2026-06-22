@@ -51,7 +51,10 @@ pip install --quiet --no-cache-dir \
 # SAM2 and DEXTR
 echo "[5/6] Installing SAM2 and DEXTR..."
 pip install --quiet --no-cache-dir "git+https://github.com/facebookresearch/sam2.git"
-pip install --quiet --no-cache-dir "git+https://github.com/StevetheGreek97/DEXTR-SMe.git"
+git clone --quiet "https://github.com/StevetheGreek97/DEXTR-SMe.git" /tmp/dextr_sme
+touch /tmp/dextr_sme/src/DEXTR/__init__.py
+pip install --quiet --no-cache-dir /tmp/dextr_sme
+rm -rf /tmp/dextr_sme
 
 # SAM2 configs + model checkpoint
 echo "[6/6] Setting up SAM2 configs and downloading model..."
