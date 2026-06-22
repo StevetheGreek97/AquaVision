@@ -48,10 +48,10 @@ echo "[4/5] Installing SAM v1..."
 pip install --quiet --no-cache-dir \
     "git+https://github.com/facebookresearch/segment-anything.git"
 
-# Vendored packages
+# SAM2 and DEXTR
 echo "[5/5] Installing SAM2 and DEXTR..."
-pip install --quiet --no-cache-dir vendor/sam2
-pip install --quiet --no-cache-dir vendor/DEXTR
+pip install --quiet --no-cache-dir "git+https://github.com/facebookresearch/sam2.git"
+pip install --quiet --no-cache-dir "git+https://github.com/StevetheGreek97/DEXTR-SMe.git"
 
 echo ""
 echo "========================================"
