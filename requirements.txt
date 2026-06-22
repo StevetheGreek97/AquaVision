@@ -1,0 +1,13 @@
+PyQt6==6.9.0
+QtAwesome==1.4.0
+pyqtgraph==0.13.7
+numpy==2.1.1
+opencv-python==4.11.0.86
+pandas==2.2.3
+Pillow==11.2.1
+psutil==7.0.0
+PyYAML==6.0.2
+shapely==2.1.0
+ultralytics==8.3.167
+# SAM2 — installed separately in Dockerfile from GitHub
+# DEXTR  — installed separately in Dockerfile from vendor/
