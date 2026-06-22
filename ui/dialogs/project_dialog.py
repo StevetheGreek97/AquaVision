@@ -7,7 +7,8 @@ from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QColor, QPalette
 from services.recent_projects import load_recent_projects, remove_recent_project, delete_project_and_remove_recent
 from ui.recent_item import RecentItemWidget
-import shutil, os, re, pathlib, platform
+import shutil, os, re, pathlib, platform, json
+from datetime import datetime
 
 # ---------- Helpers: theme-aware stylesheet ----------
 
@@ -238,9 +239,14 @@ class CreateProjectDialog(QDialog):
                 shutil.copy(f, dest)
                 self.progress.setValue(int((i + 1) / max(1, len(self.img_list.file_list)) * 100))
 
-            # lightweight marker file
-            with open(project_path / f"{name}.SEproj", "w") as fh:
-                fh.write("SegmentME Project File")
+            seproj_data = {
+                "name": name,
+                "created": datetime.now().isoformat(),
+                "last_modified": datetime.now().isoformat(),
+                "images": sorted(pathlib.Path(f).name for f in self.img_list.file_list),
+            }
+            with open(project_path / f"{name}.SEproj", "w", encoding="utf-8") as fh:
+                json.dump(seproj_data, fh, indent=2)
 
             self.selected_project_db = str(project_path / ".segmentme" / "masks.db")
             self.accept()
@@ -361,18 +367,10 @@ class ProjectStartupDialog(QDialog):
         # still works if user double-clicks the row
         db_path = item.data(Qt.ItemDataRole.UserRole)
         self._open_recent_by_path(db_path)
+
     def _create_project(self):
         dlg = CreateProjectDialog(self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.selected_project_path = dlg.selected_project_db
             self.is_new_project = True
             self.accept()
-
-
-   
-
-    def _open_recent_item(self, item: QListWidgetItem):
-        path = item.data(Qt.ItemDataRole.UserRole)
-        self.selected_project_path = path
-        self.is_new_project = False
-        self.accept()

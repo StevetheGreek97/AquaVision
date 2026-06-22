@@ -1,6 +1,7 @@
 from pathlib import Path
 from core.config import ProjectConfigManager
 from services.file_handlers import loader
+from services.seproj import get_saved_images, update_images as seproj_update_images, update_classes as seproj_update_classes
 from PyQt6.QtWidgets import QMessageBox, QFileDialog
 from PyQt6.QtCore import QTimer
 
@@ -112,6 +113,69 @@ def delete_project_and_remove_recent(db_path: str) -> bool:
     except Exception:
         return False
 
+_CHUNK = 900  # stay under SQLite's 999-variable limit
+
+def _sync_seproj_images(main_window, project_root, image_paths) -> bool:
+    """
+    Compare the image list in the .SEproj file against what's on disk.
+    If images are missing: show a popup, delete their masks from the DB
+    via the app's own connection (no stale snapshot), emit masks_updated,
+    and update the .SEproj. Returns False if the user cancels.
+    """
+    saved = get_saved_images(project_root)
+    actual_names = [os.path.basename(p) for p in image_paths]
+
+    if not saved:
+        seproj_update_images(project_root, actual_names)
+        return True
+
+    actual_set = set(actual_names)
+    missing = [name for name in saved if name not in actual_set]
+
+    if not missing:
+        seproj_update_images(project_root, actual_names)
+        return True
+
+    preview = "\n".join(f"  • {n}" for n in missing[:20])
+    if len(missing) > 20:
+        preview += f"\n  … and {len(missing) - 20} more"
+
+    reply = QMessageBox.warning(
+        main_window,
+        "Missing Images Detected",
+        f"{len(missing)} image(s) were removed from the project folder:\n\n"
+        f"{preview}\n\n"
+        f"Their annotations will be removed from the database.\n"
+        f"Do you want to continue?",
+        QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+    )
+    if reply == QMessageBox.StandardButton.Cancel:
+        return False
+
+    # The DB stores image_name WITHOUT extension (e.g. "fish1"), but .SEproj
+    # stores filenames WITH extension (e.g. "fish1.jpg") — strip before deleting.
+    missing_db = [os.path.splitext(n)[0] for n in missing]
+
+    db = main_window.state_manager.db
+    try:
+        db.begin()
+        for i in range(0, len(missing_db), _CHUNK):
+            chunk = missing_db[i : i + _CHUNK]
+            ph = ",".join("?" * len(chunk))
+            db.execute_query(f"DELETE FROM masks WHERE image_name IN ({ph})", chunk)
+        db.commit()
+        main_window.state_manager.masks_updated.emit()
+    except Exception as exc:
+        db.rollback()
+        QMessageBox.warning(
+            main_window, "DB Cleanup Warning",
+            f"Could not remove orphaned masks:\n{exc}"
+        )
+
+    seproj_update_images(project_root, actual_names)
+    return True
+
+
 def initialize_project(main_window, db_path):
     """
     Initializes project state and UI in the main window.
@@ -136,10 +200,18 @@ def initialize_project(main_window, db_path):
                 return  # User canceled
 
     image_paths = loader(images_dir)
+
+    if not _sync_seproj_images(main_window, project_root, image_paths):
+        return  # User canceled on missing-images dialog
+
     if image_paths:
         main_window.project_root = project_root
         main_window.config = config
         main_window.state_manager.set_image_paths(image_paths)
         main_window.slider.set_image_count(len(image_paths))
         main_window.image_display.display_image(main_window.state_manager.current_image_path)
-        QTimer.singleShot(0, main_window.image_display.fit_to_view) 
+        QTimer.singleShot(0, main_window.image_display.fit_to_view)
+
+        # Sync classes from DB into .SEproj on every open
+        rows = main_window.state_manager.class_manager.list_classes()
+        seproj_update_classes(project_root, [{"name": r[1], "color": r[2]} for r in rows])

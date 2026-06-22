@@ -190,7 +190,7 @@ class ImageController(QObject):
     def get_clicked_masks(self, click_point):
         masks = self.parent.state_manager.mask_manager.load_masks(self.parent.state_manager.current_image_name)
         clicked_masks = []
-        for mask_id, mask, class_name in masks:
+        for mask_id, mask, class_name, _ in masks:
             if mask is not None and mask.shape[0] >= 3:
                 if cv2.pointPolygonTest(mask.astype(np.int32), click_point, measureDist=False) >= 0:
                     clicked_masks.append(str(mask_id))

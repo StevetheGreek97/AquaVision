@@ -57,6 +57,10 @@ class ImageDisplay(QGraphicsView):
         self._hl_img = None                 # QImage (ARGB32 premult)
         self._mask_index = {}               # str(mask_id) -> np.ndarray(int32) polygon
 
+        # Mask visibility
+        self.masks_visible = True
+        self._peeking = False               # True while H is held down
+
     # ---------- Public API ----------
 
     def display_image(self, image_path, preserve_zoom=False):
@@ -106,6 +110,8 @@ class ImageDisplay(QGraphicsView):
         Faster base overlay: blend per class once, then draw outlines. (Your already-optimized version can live here.)
         """
         output = image.copy()
+        if not self.masks_visible or self._peeking:
+            return output
         masks = self.parent.state_manager.mask_manager.load_masks(
             self.parent.state_manager.current_image_name
         )
@@ -199,6 +205,25 @@ class ImageDisplay(QGraphicsView):
         self.highlighted_mask_ids = selected_ids
         self.highlight_selected_masks(self.highlighted_mask_ids)
 
+    def set_masks_visible(self, visible: bool):
+        """Persistent toggle — called by the View menu action."""
+        self.masks_visible = visible
+        self._apply_visibility()
+
+    def set_peeking(self, peeking: bool):
+        """Transient hold-to-hide — called by the H key press/release."""
+        self._peeking = peeking
+        self._apply_visibility()
+
+    def _apply_visibility(self):
+        """Switch pixmap without re-rendering masks."""
+        if self.parent.state_manager.current_image is None:
+            return
+        if not self.masks_visible or self._peeking:
+            self._set_base_pixmap(self.parent.state_manager.current_image)
+        elif self.cached_image_with_masks is not None:
+            self._set_base_pixmap(self.cached_image_with_masks)
+
     def fit_to_view(self):
         self.resetTransform()
         self._zoom_factor = 1.0
@@ -214,6 +239,7 @@ class ImageDisplay(QGraphicsView):
         if self.parent.state_manager.current_image is None:
             return
 
+        self._rebuild_mask_index()
         self.cached_image_with_masks = self.overlay_base_masks(self.parent.state_manager.current_image)
         self._set_base_pixmap(self.cached_image_with_masks)
 

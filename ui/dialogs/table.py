@@ -232,10 +232,10 @@ class ClassComboDelegate(QStyledItemDelegate):
     Provides a QComboBox editor only while editing the 'Class' column.
     No per-row widget overhead.
     """
-    def __init__(self, class_manager, icon_cache, parent=None):
+    def __init__(self, class_manager, get_icon_cache, parent=None):
         super().__init__(parent)
         self.cm = class_manager
-        self.icon_cache = icon_cache
+        self._get_icon_cache = get_icon_cache  # callable — always returns the dock's current cache
 
     def createEditor(self, parent, option, index: QModelIndex):
         # Only column 3 gets a combo editor
@@ -243,8 +243,10 @@ class ClassComboDelegate(QStyledItemDelegate):
             return super().createEditor(parent, option, index)
 
         combo = QComboBox(parent)
+        icon_cache = self._get_icon_cache()
         for cls in self.cm.get_all_class_names():
-            combo.addItem(self.icon_cache.get(cls), cls)
+            combo.addItem(icon_cache.get(cls), cls)
+        QTimer.singleShot(0, combo.showPopup)
         return combo
 
     def setEditorData(self, editor, index):
@@ -318,13 +320,13 @@ class MaskResultsDock(QDockWidget):
         self._proxy.setSourceModel(self._model)
         self.table.setModel(self._proxy)
 
-        # Delegate for column 3 (Class)
+        # Delegate for column 3 (Class) — uses a lambda so it always reads the current cache
         self._class_icon_cache = self._build_class_icon_cache()
         self.table.setItemDelegateForColumn(
             MaskTableModel.COL_CLASS,
             ClassComboDelegate(
                 class_manager=self.parent.state_manager.class_manager,
-                icon_cache=self._class_icon_cache,
+                get_icon_cache=lambda: self._class_icon_cache,
                 parent=self.table
             )
         )
@@ -435,6 +437,7 @@ class MaskResultsDock(QDockWidget):
 
     # ------------------------------ Selection & filters -----------------------
     def _refresh_class_filter(self):
+        self._class_icon_cache = self._build_class_icon_cache()
         current = self.class_filter.currentText() if self.class_filter.count() else "All classes"
         self.class_filter.blockSignals(True)
         self.class_filter.clear()

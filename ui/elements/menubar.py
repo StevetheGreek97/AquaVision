@@ -64,6 +64,17 @@ class MenuBar(QMenuBar):
 
         self._add_actions_to_menu(view_menu, actions)
 
+        view_menu.addSeparator()
+
+        self.toggle_masks_action = QAction("Show Masks", self.parent)
+        self.toggle_masks_action.setCheckable(True)
+        self.toggle_masks_action.setChecked(True)
+        self.toggle_masks_action.setToolTip("Toggle mask overlay visibility (hold H to peek)")
+        self.toggle_masks_action.toggled.connect(
+            lambda checked: self.parent.image_display.set_masks_visible(checked)
+        )
+        view_menu.addAction(self.toggle_masks_action)
+
     def _init_help_menu(self):
         """
         Create the Help menu with documentation and about options.

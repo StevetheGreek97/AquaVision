@@ -7,6 +7,7 @@ from PyQt6.QtGui import QColor
 import qtawesome as qta
 import re
 from services.file_handlers import get_tooltip
+from services.seproj import update_classes as seproj_update_classes
 
 class Sidebar(QWidget):
     """
@@ -285,6 +286,7 @@ class Sidebar(QWidget):
         self.parent.state_manager.class_manager.add_class(class_name, color)
         print(f"✅ Added new class: {class_name} ({color.name()})")
         self.populate_class_dropdown()
+        self._sync_classes_to_seproj()
 
 
     def remove_selected_class(self):
@@ -317,6 +319,7 @@ class Sidebar(QWidget):
 
         self.class_dropdown.removeItem(current_index)
         print(f"✅ Class '{class_name}' and {count} mask(s) deleted and reindexed.")
+        self._sync_classes_to_seproj()
         self.parent.image_display.display_image(self.parent.state_manager.current_image_path, preserve_zoom=True)
 
     def pick_class_color(self):
@@ -324,6 +327,14 @@ class Sidebar(QWidget):
         if color.isValid():
             self.selected_color = color
             print(f"🎨 Selected color: {color.name()}")
+
+    def _sync_classes_to_seproj(self):
+        project_root = getattr(self.parent.state_manager, "project_root", None)
+        if not project_root:
+            return
+        rows = self.parent.state_manager.class_manager.list_classes()
+        classes = [{"name": row[1], "color": row[2]} for row in rows]
+        seproj_update_classes(project_root, classes)
 
     def populate_class_dropdown(self):
         class_manager = self.parent.state_manager.class_manager

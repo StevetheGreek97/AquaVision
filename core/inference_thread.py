@@ -39,12 +39,11 @@ class InferenceThread(QThread):
 
                 image = Image.open(image_path).convert("RGB")
                 results = model.predict(
-                    image_path, save_txt=False, save_crop=False,imgsz=self.dims, 
+                    image_path, save_txt=False, save_crop=False, imgsz=self.dims,
                     verbose=False, conf=self.conf, iou=0.2, agnostic_nms=True
                 )
 
                 masks_xy = results[0].masks.xy if results[0].masks else []
-                # class ids align with masks order
                 class_ids = results[0].boxes.cls.tolist() if results[0].boxes is not None else []
                 class_names = [model.names[int(i)] for i in class_ids]
 
@@ -62,7 +61,6 @@ class InferenceThread(QThread):
                     image = Image.open(image_path).convert("RGB")
                     results = model(image)
                     masks_xy = results[0].masks.xy if results[0].masks else []
-                    # SAM doesn’t provide class names—map to a default if you want.
                     class_names = ["object"] * len(masks_xy)
                     self.inference_completed.emit(image_path, masks_xy, class_names)
                 except Exception as e:

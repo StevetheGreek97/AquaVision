@@ -31,6 +31,7 @@ from services.logger import logger, log_memory_usage
 
 from datetime import datetime
 from core.save_res import SaveResultsDBWorker
+from services.seproj import update_images as seproj_update_images
 
 class MainApp(QMainWindow):
     image_changed = pyqtSignal(str, object)
@@ -115,6 +116,11 @@ class MainApp(QMainWindow):
         self.state_manager.set_image_paths(image_paths)
         self.slider.set_image_count(len(image_paths))
         self.image_display.display_image(self.state_manager.current_image_path)
+
+        # Keep .SEproj in sync with the folder
+        project_root = getattr(self, "project_root", None)
+        if project_root:
+            seproj_update_images(project_root, [os.path.basename(p) for p in image_paths])
 
         QMessageBox.information(
             self, "Import Complete",
@@ -277,10 +283,9 @@ class MainApp(QMainWindow):
 
     # ---------- Events ----------
     def eventFilter(self, source, event):
-        if event.type() == QEvent.Type.KeyPress:
+        if event.type() == QEvent.Type.KeyPress and not event.isAutoRepeat():
             if event.key() == Qt.Key.Key_Delete:
                 self.image_display.delete_selected_masks()
-                # schedule a refresh instead of immediate heavy repaint
                 self._schedule_results_refresh()
                 return True
             elif event.key() == Qt.Key.Key_Right:
@@ -288,6 +293,13 @@ class MainApp(QMainWindow):
                 return True
             elif event.key() == Qt.Key.Key_Left:
                 self.previous_image()
+                return True
+            elif event.key() == Qt.Key.Key_H:
+                self.image_display.set_peeking(True)
+                return True
+        elif event.type() == QEvent.Type.KeyRelease and not event.isAutoRepeat():
+            if event.key() == Qt.Key.Key_H:
+                self.image_display.set_peeking(False)
                 return True
         return super().eventFilter(source, event)
 

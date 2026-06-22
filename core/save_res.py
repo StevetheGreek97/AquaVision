@@ -21,6 +21,7 @@ class SaveResultsDBWorker(QObject):
         self._cancel = True
 
     def run(self):
+        conn = None
         try:
             # Open a dedicated READ-ONLY connection for the worker thread
             conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True)
@@ -44,7 +45,6 @@ class SaveResultsDBWorker(QObject):
                 while True:
                     if self._cancel:
                         self.canceled.emit()
-                        conn.close()
                         return
                     rows = cur.fetchmany(self.chunk_size)
                     if not rows:
@@ -53,8 +53,10 @@ class SaveResultsDBWorker(QObject):
                     written += len(rows)
                     self.progress.emit(written)
 
-            conn.close()
             self.finished.emit(self.out_path)
 
         except Exception as e:
             self.error.emit(str(e))
+        finally:
+            if conn:
+                conn.close()

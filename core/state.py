@@ -115,15 +115,6 @@ class StateManager(QObject):
 
         return self.mask_manager.load_masks(self.current_image_name)
 
-    @property
-    def current_colors(self):
-        """
-        Get the colors associated with the masks of the currently displayed image.
-
-        Returns:
-            list: List of colors for the current image's masks, or an empty list if no colors are available.
-        """
-        return self.colors.get(self.current_image_path, [])
 
     def next_image(self):
         """
@@ -157,7 +148,5 @@ class StateManager(QObject):
         """
         self.image_index = -1
         self.image_paths = []
-        self.masks.clear()
-        self.colors.clear()
 
 

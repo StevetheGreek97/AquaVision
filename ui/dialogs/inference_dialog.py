@@ -53,19 +53,20 @@ class InferenceDialog(QDialog):
         self.conf_spinbox.setToolTip("Detection confidence threshold (0–1).")
         params_form.addRow("Confidence:", self.conf_spinbox)
 
+
         # Image dimensions
         dims_row = QHBoxLayout()
         dims_row.setSpacing(8)
 
         self.width_spinbox = QSpinBox()
         self.width_spinbox.setRange(16, 32768)
-        self.width_spinbox.setValue(144)
+        self.width_spinbox.setValue(1024)
         self.width_spinbox.setSuffix(" px")
         self.width_spinbox.setToolTip("Input image width in pixels.")
 
         self.height_spinbox = QSpinBox()
         self.height_spinbox.setRange(16, 32768)
-        self.height_spinbox.setValue(144)
+        self.height_spinbox.setValue(1024)
         self.height_spinbox.setSuffix(" px")
         self.height_spinbox.setToolTip("Input image height in pixels.")
 
@@ -101,6 +102,59 @@ class InferenceDialog(QDialog):
         dims_col.addWidget(self.lock_aspect)
 
         params_form.addRow("Image size:", dims_col)
+
+
+        # --- HiReS toggle ----------------------------------------------------
+        self.hires_checkbox = QCheckBox("HiReS (HiResolution Segmentation)")
+        self.hires_checkbox.setToolTip("If checked, use HiReS with chunking, overlap and extra thresholds.")
+        self.hires_checkbox.toggled.connect(self.on_hires_toggled)
+        params_form.addRow(self.hires_checkbox)
+
+        # --- HiReS settings (initially hidden) -------------------------------
+        self.hires_box = QGroupBox("HiReS Settings")
+        hires_form = QFormLayout()
+        self.hires_box.setLayout(hires_form)
+
+
+
+
+        # chunk_size = (1024, 1024)
+        chunk_row = QHBoxLayout()
+        self.chunk_width_spinbox = QSpinBox()
+        self.chunk_width_spinbox.setRange(64, 32768)
+        self.chunk_width_spinbox.setValue(1024)
+        self.chunk_width_spinbox.setSuffix(" px")
+
+
+        self.chunk_height_spinbox = QSpinBox()
+        self.chunk_height_spinbox.setRange(64, 32768)
+        self.chunk_height_spinbox.setValue(1024)
+        self.chunk_height_spinbox.setSuffix(" px")
+
+        # overlap = 300
+        self.overlap_spinbox = QSpinBox()
+        self.overlap_spinbox.setRange(0, 5000)
+        self.overlap_spinbox.setValue(300)
+        self.overlap_spinbox.setSuffix(" px")
+        hires_form.addRow("Overlap:", self.overlap_spinbox)
+
+        chunk_row.addWidget(self.chunk_width_spinbox)
+        chunk_row.addWidget(self.chunk_height_spinbox)
+        hires_form.addRow("Chunk size (W×H):", chunk_row)
+
+
+        # iou_thresh = 0.7
+        self.iou_spinbox = QDoubleSpinBox()
+        self.iou_spinbox.setRange(0.0, 1.0)
+        self.iou_spinbox.setDecimals(2)
+        self.iou_spinbox.setSingleStep(0.05)
+        self.iou_spinbox.setValue(0.70)
+        hires_form.addRow("IoU threshold:", self.iou_spinbox)
+
+        # hidden by default
+        self.hires_box.setVisible(False)
+        params_form.addRow(self.hires_box)
+
         params_box.setLayout(params_form)
         root.addWidget(params_box)
 
@@ -140,6 +194,11 @@ class InferenceDialog(QDialog):
                 self.model_selector.setCurrentIndex(0)
                 self.custom_model_path = None
 
+    def on_hires_toggled(self, checked: bool):
+        """Show/hide HiReS settings when the checkbox is toggled."""
+        self.hires_box.setVisible(checked)
+
+
     # ------------------------ getters ---------------------------------------
     def get_selected_model(self):
         if self.custom_model_path and self.model_selector.currentIndex() == 0:
@@ -152,3 +211,47 @@ class InferenceDialog(QDialog):
     def get_image_dimensions(self):
         """Returns (width, height) as ints."""
         return int(self.width_spinbox.value()), int(self.height_spinbox.value())
+    
+    def get_chunk_dimensions(self):
+        """Returns (width, height) as ints."""
+        return (int(self.chunk_width_spinbox.value()), int(self.chunk_height_spinbox.value()))
+
+    def is_hires_enabled(self):
+        return self.hires_checkbox.isChecked()
+
+    def get_hires_params(self):
+        """
+        Return a dict with HiReS parameters if enabled, else None.
+
+        This is shaped so you can do:
+
+            hp = dialog.get_hires_params()
+            if hp:
+                cfg = Settings(
+                    conf=hp["conf"],
+                    imgsz=hp["imgsz"],
+                    device=hp["device"],
+                    chunk_size=hp["chunk_size"],
+                    overlap=hp["overlap"],
+                    edge_threshold=hp["edge_threshold"],
+                    iou_thresh=hp["iou_thresh"],
+                )
+                Pipeline(cfg).run(
+                    input_path=raw_image_path,
+                    model_path=model_path,
+                    output_dir=hp["output_dir"],
+                    workers=hp["workers"],
+                )
+        """
+        if not self.is_hires_enabled():
+            return None
+
+
+        return {
+            "conf": self.get_threshold(),
+            'iou': self.iou_spinbox.value(),
+            "overlap": int(self.overlap_spinbox.value()),
+            'chunk': self.get_chunk_dimensions(),
+            'imgsz': self.get_image_dimensions()
+
+        }
