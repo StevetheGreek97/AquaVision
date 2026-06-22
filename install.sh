@@ -49,9 +49,34 @@ pip install --quiet --no-cache-dir \
     "git+https://github.com/facebookresearch/segment-anything.git"
 
 # SAM2 and DEXTR
-echo "[5/5] Installing SAM2 and DEXTR..."
+echo "[5/6] Installing SAM2 and DEXTR..."
 pip install --quiet --no-cache-dir "git+https://github.com/facebookresearch/sam2.git"
 pip install --quiet --no-cache-dir "git+https://github.com/StevetheGreek97/DEXTR-SMe.git"
+
+# SAM2 configs + model checkpoint
+echo "[6/6] Setting up SAM2 configs and downloading model..."
+mkdir -p sam2_configs
+
+# Copy yaml configs from the installed sam2 package
+python3 - <<'PYEOF'
+import sam2, os, shutil
+src = os.path.join(os.path.dirname(sam2.__file__), "configs", "sam2")
+dst = "sam2_configs"
+for f in os.listdir(src):
+    if f.endswith(".yaml"):
+        shutil.copy2(os.path.join(src, f), os.path.join(dst, f))
+print(f"  Copied configs from {src}")
+PYEOF
+
+# Download the tiny checkpoint (~155 MB) if not already present
+if [ ! -f "sam2_configs/sam2_hiera_tiny.pt" ]; then
+    echo "  Downloading sam2_hiera_tiny.pt (~155 MB)..."
+    curl -L --progress-bar \
+        "https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_tiny.pt" \
+        -o "sam2_configs/sam2_hiera_tiny.pt"
+else
+    echo "  sam2_hiera_tiny.pt already present, skipping download."
+fi
 
 echo ""
 echo "========================================"

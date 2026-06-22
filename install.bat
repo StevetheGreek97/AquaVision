@@ -27,9 +27,21 @@ pip install --quiet --no-cache-dir -r requirements.txt
 echo [4/5] Installing SAM v1...
 pip install --quiet --no-cache-dir "git+https://github.com/facebookresearch/segment-anything.git"
 
-echo [5/5] Installing SAM2 and DEXTR...
+echo [5/6] Installing SAM2 and DEXTR...
 pip install --quiet --no-cache-dir "git+https://github.com/facebookresearch/sam2.git"
 pip install --quiet --no-cache-dir "git+https://github.com/StevetheGreek97/DEXTR-SMe.git"
+
+echo [6/6] Setting up SAM2 configs and downloading model...
+if not exist "sam2_configs" mkdir sam2_configs
+
+python -c "import sam2, os, shutil; src=os.path.join(os.path.dirname(sam2.__file__),'configs','sam2'); [shutil.copy2(os.path.join(src,f),'sam2_configs/'+f) for f in os.listdir(src) if f.endswith('.yaml')]; print('  Configs copied.')"
+
+if not exist "sam2_configs\sam2_hiera_tiny.pt" (
+    echo   Downloading sam2_hiera_tiny.pt ~155 MB...
+    curl -L --progress-bar "https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_tiny.pt" -o "sam2_configs\sam2_hiera_tiny.pt"
+) else (
+    echo   sam2_hiera_tiny.pt already present, skipping.
+)
 
 echo.
 echo ========================================
