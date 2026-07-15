@@ -3,6 +3,11 @@ from PIL import Image
 import numpy as np
 from ultralytics import YOLO, SAM
 
+from services.logger import get_logger
+
+logger = get_logger(__name__)
+
+
 class InferenceThread(QThread):
     # Emit: image_path, list_of_polygons (each Nx2 ndarray), list_of_class_names
     inference_completed = pyqtSignal(str, list, list)
@@ -18,14 +23,17 @@ class InferenceThread(QThread):
 
     def run(self):
         try:
+            logger.info("Starting %s inference: model=%s, %d image(s), conf=%.2f, imgsz=%s",
+                        self.mode, self.model_path, len(self.image_paths), self.conf, self.dims)
             if self.mode == "yolo":
                 self._run_yolo()
             elif self.mode == "sam":
                 self._run_sam()
             else:
-                print(f"Unsupported mode: {self.mode}")
-        except Exception as e:
-            print(f"Error during inference: {e}")
+                logger.error("Unsupported inference mode: %r", self.mode)
+        except Exception:
+            logger.exception("Inference thread crashed (mode=%s, model=%s)",
+                             self.mode, self.model_path)
         finally:
             self._is_running = False
             self.finished.emit()
@@ -48,8 +56,8 @@ class InferenceThread(QThread):
                 class_names = [model.names[int(i)] for i in class_ids]
 
                 self.inference_completed.emit(image_path, masks_xy, class_names)
-        except Exception as e:
-            print(f"Error in YOLO inference: {e}")
+        except Exception:
+            logger.exception("YOLO inference failed (model=%s)", self.model_path)
 
     def _run_sam(self):
         try:
@@ -63,10 +71,11 @@ class InferenceThread(QThread):
                     masks_xy = results[0].masks.xy if results[0].masks else []
                     class_names = ["object"] * len(masks_xy)
                     self.inference_completed.emit(image_path, masks_xy, class_names)
-                except Exception as e:
-                    print(f"Error processing {image_path}: {e}")
-        except Exception as e:
-            print(f"Error initializing SAM model: {e}")
+                except Exception:
+                    logger.exception("SAM inference failed for %s; continuing with next image",
+                                     image_path)
+        except Exception:
+            logger.exception("Failed to initialize SAM model %s", self.model_path)
 
     def stop(self):
         self._is_running = False

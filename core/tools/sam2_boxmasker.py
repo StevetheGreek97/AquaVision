@@ -4,8 +4,10 @@ import torch
 from PyQt6.QtGui import QPen, QColor, QPolygonF, QBrush
 from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsPolygonItem, QGraphicsRectItem
 from PyQt6.QtCore import pyqtSignal, QObject, QPointF, QRectF, Qt
-from services.logger import logger
+from services.logger import get_logger
 from services.file_handlers import get_resource_path
+
+logger = get_logger(__name__)
 from sam2.sam2_image_predictor import SAM2ImagePredictor
 from sam2.build_sam import build_sam2
 
@@ -47,6 +49,7 @@ class SamBoxMasker(QObject):
     def _load_sam2_model(self):
         """Load the SAM 2 model once."""
         model_path = get_resource_path("sam2_configs/sam2_hiera_tiny.pt")
+        logger.info("Loading SAM2 model from %s (device=%s)", model_path, self.device)
         sam2_model = build_sam2("sam2_hiera_t.yaml", model_path, device=self.device)
         return SAM2ImagePredictor(sam2_model)
 
@@ -79,7 +82,8 @@ class SamBoxMasker(QObject):
             self.background_points.append(point)
             self.background_items.append(ellipse)
 
-        logger.info(f"Added point: {point}, Label: {label}")
+        logger.debug("Added %s point at %s",
+                     "foreground" if label == 1 else "background", point)
 
     def add_box(self, start_point: tuple, end_point: tuple):
         """
@@ -101,7 +105,7 @@ class SamBoxMasker(QObject):
         self.box_item.setPen(pen)
         self.parent.scene.addItem(self.box_item)
 
-        logger.info(f"Added bounding box: {self.box}")
+        logger.debug("Added bounding box %s", self.box)
 
     def clear_box(self):
         """Remove any existing bounding box."""
@@ -149,7 +153,7 @@ class SamBoxMasker(QObject):
             numpy.ndarray: Generated mask.
         """
         if self.box is None and not self.foreground_points:
-            logger.error("No box or foreground points added for mask generation.")
+            logger.warning("Cannot generate mask: no box or foreground points added")
             return None
 
         points = np.array(self.foreground_points + self.background_points)
@@ -192,26 +196,26 @@ class SamBoxMasker(QObject):
             self.current_polygon_item = None
 
         self.mask = None
-        logger.info("Temporary items cleared.")
+        logger.debug("Cleared temporary items")
 
     def complete_mask(self):
         """
         Save the generated mask to the database.
         """
         if self.mask is None or self.mask.shape[0] == 0:
-            logger.error("❌ No mask found! Hit -e- to execute or check contour extraction.")
+            logger.warning("No mask to save; press E to generate one first")
             return
         if not self.parent.parent.sidebar.has_valid_class_selection():
             self.clear_temp_items()
-            return  # ❌ Cancel saving if no valid class is selected
+            return  # Cancel saving if no valid class is selected
 
+        image_name = self.parent.parent.state_manager.current_image_name
         class_name, selected_color = self.parent.parent.sidebar.get_selected_class_color()
-        self.parent.parent.state_manager.mask_manager.save_mask(
-            self.mask, self.parent.parent.state_manager.current_image_name, class_name
-        )
+        self.parent.parent.state_manager.mask_manager.save_mask(self.mask, image_name, class_name)
 
-        self.mask_added.emit(self.parent.parent.state_manager.current_image_name, self.mask)
-        logger.info(f"✅ Mask successfully saved: {self.mask.shape}")
+        self.mask_added.emit(image_name, self.mask)
+        logger.info("Saved SAM2-box mask (%d points) for image %s as class %r",
+                    self.mask.shape[0], image_name, class_name)
         self.clear_temp_items()
     def update_box_preview(self, start_point, end_point):
         """

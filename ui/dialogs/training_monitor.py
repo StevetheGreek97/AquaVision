@@ -2,6 +2,10 @@
 from PyQt6.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton
 import pyqtgraph as pg
 
+from services.logger import get_logger
+
+logger = get_logger(__name__)
+
 class TrainingMonitorCMD(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -170,7 +174,7 @@ class TrainingMonitor(QDialog):
 
     def _update_from_csv(self):
         if not self.results_csv or not os.path.exists(self.results_csv):
-            print("📂 Waiting for results.csv to appear...")
+            logger.debug("Waiting for training results file %s", self.results_csv)
             return
 
         try:
@@ -178,8 +182,7 @@ class TrainingMonitor(QDialog):
             if df.empty:
                 return
 
-            print("[⏰] Reading results.csv...")
-            print(df.tail(1))
+            logger.debug("Read %d epoch row(s) from %s", len(df), self.results_csv)
 
             epochs = pd.to_numeric(df["epoch"], errors="coerce")
 
@@ -199,7 +202,7 @@ class TrainingMonitor(QDialog):
             self._plot_metric(self.trainval_plot, epochs, df.get("metrics/mAP50-95(B)"), 'mAP50-95', 'orange')
 
         except Exception as e:
-            print(f"❌ Error reading results.csv: {e}")
+            logger.warning("Failed to read training results %s: %s", self.results_csv, e)
 
     def _plot_metric(self, widget, x, y, label, color):
         if y is not None and not y.isna().all() and len(x) > 0:
@@ -229,7 +232,7 @@ class TrainingMonitor(QDialog):
             try:
                 self.stop_callback()
             except RuntimeError as e:
-                print(f"⚠️ Worker already deleted: {e}")
+                logger.debug("Stop callback skipped (worker already deleted): %s", e)
 
         self.append_log("🛑 Training stopped manually.")
 
@@ -238,7 +241,7 @@ class TrainingMonitor(QDialog):
         self._on_stop()
 
         if self.thread and self.thread.isRunning():
-            print("⏳ Waiting for training thread to stop...")
+            logger.debug("Waiting for training thread to stop")
             self.thread.quit()
             self.thread.wait()
 

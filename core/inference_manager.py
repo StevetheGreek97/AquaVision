@@ -1,8 +1,11 @@
 from PyQt6.QtCore import QObject, QTimer
 from ui.dialogs.progress import ProgressDialogManager
 from core.inference_thread import InferenceThread
+from services.logger import get_logger
 from PyQt6.QtGui import QColor
 import random, os
+
+logger = get_logger(__name__)
 
 class InferenceManager(QObject):
     def __init__(self, parent, mode, display_text):
@@ -24,7 +27,7 @@ class InferenceManager(QObject):
 
     def run_inference(self, model_path, image_files, conf, dims):
         if not image_files:
-            print("No image files provided for inference.")
+            logger.warning("Inference requested with no image files; ignoring")
             return
 
         if self.inference_thread and self.inference_thread.isRunning():
@@ -107,4 +110,4 @@ class InferenceManager(QObject):
         if self.inference_thread and self.inference_thread.isRunning():
             self.inference_thread.wait()
         self.inference_thread = None
-        print("Inference completed and cleaned up.")
+        logger.info("Inference finished")

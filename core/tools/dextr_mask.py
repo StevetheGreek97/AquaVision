@@ -5,8 +5,10 @@ import torch.nn.functional as F
 from PyQt6.QtGui import QPen, QColor, QPolygonF
 from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsPolygonItem
 from PyQt6.QtCore import pyqtSignal, QObject, QPointF
-from services.logger import logger
+from services.logger import get_logger
 from services.file_handlers import get_resource_path
+
+logger = get_logger(__name__)
 from DEXTR.networks.deeplab_resnet import resnet101
 from DEXTR.dataloaders.helpers import get_bbox, crop_from_bbox, fixed_resize, make_gt, cstm_normalize, crop2fullmask
 class DEXTRMasker(QObject):
@@ -39,8 +41,8 @@ class DEXTRMasker(QObject):
 
     def _load_dextr_model(self):
         """Load the DEXTR model once."""
-        model_path = get_resource_path("/home/steve/exp/lib/python3.12/site-packages/DEXTR/models/dextr_pascal-sbd.pth")
-        logger.info(f"Loading DEXTR model from: {model_path}")
+        model_path = get_resource_path("models/dextr/dextr_pascal-sbd.pth")
+        logger.info("Loading DEXTR model from %s (device=%s)", model_path, self.device)
 
         model = resnet101(1, nInputChannels=4, classifier='psp').to(self.device)
         model.load_state_dict(torch.load(model_path, map_location=self.device))
@@ -67,7 +69,7 @@ class DEXTRMasker(QObject):
             point (tuple): The point to add as (x, y).
         """
         if len(self.extreme_points) >= 4:
-            logger.warning("⚠️ Already selected 4 extreme points. Press 'S' to segment.")
+            logger.warning("Already have 4 extreme points; press E to segment")
             return
 
         ellipse = self._add_graphics_point(point)
@@ -75,7 +77,7 @@ class DEXTRMasker(QObject):
         self.extreme_points.append(point)
         self.point_items.append(ellipse)
 
-        logger.info(f"📍 Added extreme point: {point} ({len(self.extreme_points)}/4)")
+        logger.debug("Added extreme point %s (%d/4)", point, len(self.extreme_points))
 
     def display_polygon(self, polygon_points: list, color=QColor(0, 255, 0), line_width: int = 2):
         """
@@ -91,7 +93,7 @@ class DEXTRMasker(QObject):
             self.current_polygon_item = None
 
         if not polygon_points:
-            logger.warning("⚠️ No polygon points to display.")
+            logger.warning("No polygon points to display")
             return
 
         polygon = QPolygonF([QPointF(x, y) for x, y in polygon_points])
@@ -116,7 +118,8 @@ class DEXTRMasker(QObject):
             numpy.ndarray: Generated mask.
         """
         if len(self.extreme_points) != 4:
-            logger.error("❌ Select exactly 4 extreme points before segmentation!")
+            logger.warning("DEXTR needs exactly 4 extreme points (have %d)",
+                           len(self.extreme_points))
             return None
 
         # Convert extreme points to numpy array
@@ -127,7 +130,7 @@ class DEXTRMasker(QObject):
 
         # ✅ Validate bounding box before cropping
         if bbox is None or (bbox[2] <= bbox[0] or bbox[3] <= bbox[1]):
-            logger.error(f"❌ Invalid bounding box detected: {bbox}. Skipping segmentation.")
+            logger.warning("Invalid bounding box %s from extreme points; segmentation skipped", bbox)
             return None
 
         # Crop image and resize
@@ -135,7 +138,7 @@ class DEXTRMasker(QObject):
 
         # ✅ Ensure cropped image is valid before proceeding
         if crop_image is None or crop_image.size == 0:
-            logger.error("❌ Cropped image is empty. Skipping segmentation.")
+            logger.warning("Cropped image is empty; segmentation skipped")
             return None
 
         resize_image = fixed_resize(crop_image, (512, 512)).astype(np.float32)
@@ -161,7 +164,7 @@ class DEXTRMasker(QObject):
 
         # ✅ Validate `pred_mask`
         if pred_mask.sum() == 0:
-            logger.error("❌ Predicted mask is empty. Skipping saving.")
+            logger.warning("DEXTR predicted an empty mask; nothing to save")
             return None
 
         # ✅ Use `crop2fullmask()` to properly restore mask instead of `crop_from_bbox()`
@@ -169,7 +172,7 @@ class DEXTRMasker(QObject):
 
         # ✅ Ensure cropped mask is valid
         if full_mask is None or full_mask.size == 0:
-            logger.error("❌ Cropped mask is empty. Skipping segmentation.")
+            logger.warning("Restored full-size mask is empty; segmentation skipped")
             return None
 
         # Extract contours
@@ -198,7 +201,7 @@ class DEXTRMasker(QObject):
             self.current_polygon_item = None
 
         self.mask = None
-        logger.info("🗑️ Temporary items cleared.")
+        logger.debug("Cleared temporary items")
 
     def complete_mask(self):
         """
@@ -206,25 +209,22 @@ class DEXTRMasker(QObject):
         """
         if not self.parent.parent.sidebar.has_valid_class_selection():
             self.clear_temp_items()
-            return  # ❌ Cancel saving if no valid class is selected
-        
+            return  # Cancel saving if no valid class is selected
+
         if self.mask is None or self.mask.shape[0] == 0:
-            logger.error("❌ No mask found! Hit -S- to segment before saving.")
+            logger.warning("No mask to save; press E to segment first")
             return
 
         if self.mask.ndim != 2 or self.mask.shape[1] != 2:
-            logger.error(f"❌ Error: Invalid mask shape {self.mask.shape} (Expected Nx2).")
+            logger.error("Invalid mask shape %s (expected Nx2); not saved", self.mask.shape)
             return
 
+        image_name = self.parent.parent.state_manager.current_image_name
         class_name, selected_color = self.parent.parent.sidebar.get_selected_class_color()
 
-        logger.info(f"🔍 Saving Mask - Image: {self.parent.parent.state_manager.current_image_name}, "
-                    f"Class: {class_name}, Shape: {self.mask.shape}")
+        self.parent.parent.state_manager.mask_manager.save_mask(self.mask, image_name, class_name)
 
-        self.parent.parent.state_manager.mask_manager.save_mask(
-            self.mask, self.parent.parent.state_manager.current_image_name, class_name
-        )
-
-        self.mask_added.emit(self.parent.parent.state_manager.current_image_name, self.mask)
-        logger.info(f"✅ Mask successfully saved: {self.mask.shape}")
+        self.mask_added.emit(image_name, self.mask)
+        logger.info("Saved DEXTR mask (%d points) for image %s as class %r",
+                    self.mask.shape[0], image_name, class_name)
         self.clear_temp_items()

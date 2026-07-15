@@ -3,6 +3,10 @@ import yaml
 from PyQt6.QtWidgets import QProgressDialog
 from PyQt6.QtCore import Qt
 
+from services.logger import get_logger
+
+logger = get_logger(__name__)
+
 class BaseExporter:
     def __init__(self, parent):
         self.parent = parent
@@ -32,7 +36,7 @@ class BaseExporter:
         yaml_path = Path(self.parent.state_manager.project_root) / "data.yaml"
         with yaml_path.open("w") as f:
             yaml.dump(data_yaml, f, default_flow_style=False, sort_keys=False)
-        print(f"✅ data.yaml saved at: {yaml_path}")
+        logger.info("Wrote dataset config (%d classes) to %s", num_classes, yaml_path)
 
     def _show_progress_dialog(self, total):
         progress_dialog = QProgressDialog("Exporting annotations...", "Cancel", 0, total, self.parent)

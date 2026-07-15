@@ -1,6 +1,11 @@
 from pathlib import Path
 import json
 
+from services.logger import get_logger
+
+logger = get_logger(__name__)
+
+
 class ProjectConfigManager:
     def __init__(self, project_root):
         self.project_root = Path(project_root)
@@ -15,8 +20,8 @@ class ProjectConfigManager:
             try:
                 with self.config_path.open("r", encoding="utf-8") as f:
                     self.data.update(json.load(f))
-            except Exception as e:
-                print(f"⚠️ Failed to load config: {e}")
+            except Exception:
+                logger.exception("Failed to load project config %s; using defaults", self.config_path)
 
     def save(self):
         self.config_path.parent.mkdir(parents=True, exist_ok=True)

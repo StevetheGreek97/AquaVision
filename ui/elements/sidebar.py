@@ -8,6 +8,9 @@ import qtawesome as qta
 import re
 from services.file_handlers import get_tooltip
 from services.seproj import update_classes as seproj_update_classes
+from services.logger import get_logger
+
+logger = get_logger(__name__)
 
 class Sidebar(QWidget):
     """
@@ -254,7 +257,7 @@ class Sidebar(QWidget):
     def add_class(self):
         class_name, ok = QInputDialog.getText(self, "Add Class", "Enter class name:")
         if not ok or not class_name.strip():
-            print("❌ Class name cannot be empty.")
+            logger.debug("Add class cancelled: empty name")
             return
 
         class_name = class_name.strip()
@@ -280,11 +283,11 @@ class Sidebar(QWidget):
 
         color = QColorDialog.getColor()
         if not color.isValid():
-            print("❌ No color selected. Class not added.")
+            logger.debug("Add class cancelled: no color selected")
             return
 
         self.parent.state_manager.class_manager.add_class(class_name, color)
-        print(f"✅ Added new class: {class_name} ({color.name()})")
+        logger.info("Added class %r (%s)", class_name, color.name())
         self.populate_class_dropdown()
         self._sync_classes_to_seproj()
 
@@ -292,12 +295,10 @@ class Sidebar(QWidget):
     def remove_selected_class(self):
         current_index = self.class_dropdown.currentIndex()
         if current_index < 0:
-            print("❌ No class selected for removal.")
+            logger.debug("Remove class requested with no class selected")
             return
 
         class_name = self.class_dropdown.currentText().split(" ")[0]
-        print(f"🗑 Preparing to remove class: {class_name}")
-
         count = self.parent.state_manager.mask_manager.count_masks_by_class(class_name)
 
         msg_box = QMessageBox(self)
@@ -310,7 +311,7 @@ class Sidebar(QWidget):
 
         result = msg_box.exec()
         if result == QMessageBox.StandardButton.No:
-            print("❌ Deletion cancelled by user.")
+            logger.debug("Class deletion cancelled by user")
             return
 
         self.parent.state_manager.class_manager.remove_class(class_name)
@@ -318,7 +319,7 @@ class Sidebar(QWidget):
         self.parent.state_manager.class_manager.reindex_classes()
 
         self.class_dropdown.removeItem(current_index)
-        print(f"✅ Class '{class_name}' and {count} mask(s) deleted and reindexed.")
+        logger.info("Removed class %r and its %d mask(s)", class_name, count)
         self._sync_classes_to_seproj()
         self.parent.image_display.display_image(self.parent.state_manager.current_image_path, preserve_zoom=True)
 
@@ -326,7 +327,7 @@ class Sidebar(QWidget):
         color = QColorDialog.getColor()
         if color.isValid():
             self.selected_color = color
-            print(f"🎨 Selected color: {color.name()}")
+            logger.debug("Selected color %s", color.name())
 
     def _sync_classes_to_seproj(self):
         project_root = getattr(self.parent.state_manager, "project_root", None)
@@ -341,10 +342,10 @@ class Sidebar(QWidget):
         class_names = class_manager.get_all_class_names()
         self.class_dropdown.clear()
         if not class_names:
-            print("⚠️ No classes found in the database.")
+            logger.debug("No classes defined yet; dropdown left empty")
             return
         self.class_dropdown.addItems(class_names)
-        print(f"✅ Loaded {len(class_names)} classes into the dropdown.")
+        logger.debug("Loaded %d class(es) into the dropdown", len(class_names))
 
     def has_valid_class_selection(self):
         if self.class_dropdown.count() == 0:

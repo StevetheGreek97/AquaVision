@@ -7,7 +7,9 @@ from sam2.build_sam import build_sam2
 import torch
 import cv2
 from services.file_handlers import get_resource_path
-from services.logger import logger
+from services.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class SamMasker2(QObject):
@@ -43,6 +45,7 @@ class SamMasker2(QObject):
     def _load_sam2_model(self):
         """Load the SAM 2 model once."""
         model_path = get_resource_path("sam2_configs/sam2_hiera_tiny.pt")
+        logger.info("Loading SAM2 model from %s (device=%s)", model_path, self.device)
         sam2_model = build_sam2("sam2_hiera_t.yaml", model_path, device=self.device)
         return SAM2ImagePredictor(sam2_model)
 
@@ -75,7 +78,8 @@ class SamMasker2(QObject):
             self.background_points.append(point)
             self.background_items.append(ellipse)
 
-        logger.info(f"Added point: {point}, Label: {label}")
+        logger.debug("Added %s point at %s",
+                     "foreground" if label == 1 else "background", point)
 
     def display_polygon(self, polygon_points: list, color=QColor(0, 255, 0), line_width: int = 2):
         """
@@ -116,7 +120,7 @@ class SamMasker2(QObject):
             numpy.ndarray: Generated mask.
         """
         if not self.foreground_points:
-            logger.error("No foreground points added for mask generation.")
+            logger.warning("Cannot generate mask: no foreground points added")
             return None
 
         points = np.array(self.foreground_points + self.background_points)
@@ -126,10 +130,7 @@ class SamMasker2(QObject):
         masks, scores, _ = self.predictor.predict(
             point_coords=points, point_labels=labels, multimask_output=False
         )
-        print(masks.shape)
         mask = masks[0]
-        print(mask.shape)
- 
 
         contours, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         polygon = contours[0].squeeze(axis=1).tolist() if contours else []
@@ -156,32 +157,29 @@ class SamMasker2(QObject):
             self.current_polygon_item = None
 
         self.mask = None
-        logger.info("Temporary items cleared.")
+        logger.debug("Cleared temporary items")
 
     def complete_mask(self):
         """
         Save the generated mask to the database.
         """
         if self.mask is None or self.mask.shape[0] == 0:
-            logger.error("❌ No mask found! Hit -e- to execute or check contour extraction.")
+            logger.warning("No mask to save; press E to generate one first")
             return
 
         if self.mask.ndim != 2 or self.mask.shape[1] != 2:
-            logger.error(f"❌ Error: Invalid mask shape {self.mask.shape} (Expected Nx2).")
+            logger.error("Invalid mask shape %s (expected Nx2); not saved", self.mask.shape)
             return
         if not self.parent.parent.sidebar.has_valid_class_selection():
             self.clear_temp_items()
-            return  # ❌ Cancel saving if no valid class is selected
+            return  # Cancel saving if no valid class is selected
 
+        image_name = self.parent.parent.state_manager.current_image_name
         class_name, selected_color = self.parent.parent.sidebar.get_selected_class_color()
 
-        logger.info(f"🔍 Saving Mask - Image: {self.parent.parent.state_manager.current_image_name}, "
-                    f"Class: {class_name}, Shape: {self.mask.shape}")
+        self.parent.parent.state_manager.mask_manager.save_mask(self.mask, image_name, class_name)
 
-        self.parent.parent.state_manager.mask_manager.save_mask(
-            self.mask, self.parent.parent.state_manager.current_image_name, class_name
-        )
-
-        self.mask_added.emit(self.parent.parent.state_manager.current_image_name, self.mask)
-        logger.info(f"✅ Mask successfully saved: {self.mask.shape}")
+        self.mask_added.emit(image_name, self.mask)
+        logger.info("Saved SAM2 mask (%d points) for image %s as class %r",
+                    self.mask.shape[0], image_name, class_name)
         self.clear_temp_items()

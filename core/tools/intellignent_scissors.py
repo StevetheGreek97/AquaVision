@@ -6,6 +6,10 @@ from PyQt6.QtGui import QPolygonF, QPen, QColor
 from PyQt6.QtWidgets import QGraphicsPolygonItem, QGraphicsEllipseItem
 from shapely.geometry import Polygon
 
+from services.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 class IntelligentScissors(QObject):
     """
@@ -86,9 +90,9 @@ class IntelligentScissors(QObject):
             gray_image = cv2.cvtColor(resized_image, cv2.COLOR_RGB2GRAY)
             edge_map = cv2.Canny(gray_image, 50, 150)
             self.edge_weights = 1 / (edge_map + 1e-5)  # Avoid division by zero
-            print("Edge map and weights computed.")
-        else: 
-            print('Image not found')
+            logger.debug("Computed edge map for scissors (%dx%d)", *edge_map.shape[:2])
+        else:
+            logger.warning("Cannot initialize scissors: no image provided")
 
     def add_seed_point(self, point):
         """
@@ -102,7 +106,8 @@ class IntelligentScissors(QObject):
             last_point = self.seed_points[-1]
             distance = np.hypot(point[0] - last_point[0], point[1] - last_point[1])
             if distance > self.threshold:
-                print(f"Point {point} is outside the restrictive threshold.")
+                logger.debug("Seed point %s rejected: outside threshold (%.0f > %d)",
+                             point, distance, self.threshold)
                 return
 
         self.seed_points.append(point)
@@ -247,7 +252,7 @@ class IntelligentScissors(QObject):
             self.current_polygon_item = None
 
         self.clear_dynamic_path()
-        print("Polygon cleared.")
+        logger.debug("Cleared scissors polygon")
     def remove_restrictive_threshold(self):
         """
         Remove the restrictive threshold visual indicator.
@@ -265,10 +270,13 @@ class IntelligentScissors(QObject):
 
         # Create the mask polygon from the polygon points
         mask_polygon = np.array(self.polygon_points, dtype=np.float32)
+        image_name = self.parent.parent.state_manager.current_image_name
         class_name, selected_color = self.parent.parent.sidebar.get_selected_class_color()
-        self.parent.parent.state_manager.mask_manager.save_mask(mask_polygon, self.parent.parent.state_manager.current_image_name, class_name)
+        self.parent.parent.state_manager.mask_manager.save_mask(mask_polygon, image_name, class_name)
+        logger.info("Saved scissors mask (%d points) for image %s as class %r",
+                    mask_polygon.shape[0], image_name, class_name)
         # Emit the signal
-        self.mask_added.emit(self.parent.parent.state_manager.current_image_name, mask_polygon)
+        self.mask_added.emit(image_name, mask_polygon)
         
         # Clear temporary items
         self.clear_temp_items()

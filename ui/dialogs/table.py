@@ -4,11 +4,16 @@ from PyQt6.QtWidgets import (
     QDockWidget, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QSizePolicy,
     QTableView, QComboBox, QAbstractItemView, QStyledItemDelegate
 )
+from ui.custom_components.mask_context_menu import MaskContextMenu
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QModelIndex, QSortFilterProxyModel
 from PyQt6.QtGui import QIcon, QPixmap, QColor
 
 import time
 from contextlib import contextmanager
+
+from services.logger import get_logger
+
+logger = get_logger(__name__)
 
 # --- Back-compat shim for code expecting QTableWidget.selectedItems() ----
 class _FakeItem:
@@ -337,6 +342,10 @@ class MaskResultsDock(QDockWidget):
         # Selection signal
         self.table.selectionModel().selectionChanged.connect(self.on_selection_changed)
 
+        # Context menu for bulk class assignment
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._show_context_menu)
+
         self.card_layout.addWidget(self.table)
 
         # --- Status line
@@ -376,6 +385,21 @@ class MaskResultsDock(QDockWidget):
         self.parent.image_display.refresh_masks()
         if hasattr(self.parent, 'statistics') and self.parent.statistics.isVisible():
             self.parent.statistics.refresh_plot()
+
+    # ------------------------------ Context menu / bulk class assign ---------
+    def _selected_rows_data(self) -> list[tuple[str, int]]:
+        """Selected rows as (image_name, mask_id) tuples."""
+        rows = []
+        for proxy_idx in self.table.selectionModel().selectedRows():
+            src_idx = self._proxy.mapToSource(proxy_idx)
+            row = self._model.row_at(src_idx.row())
+            rows.append((row.image_name, row.mask_id))
+        return rows
+
+    def _show_context_menu(self, pos):
+        rows = self._selected_rows_data()
+        menu = MaskContextMenu(self.parent, rows, parent=self.table)
+        menu.exec(self.table.viewport().mapToGlobal(pos))
 
     # ------------------------------ Public refresh API (throttled) -----------
     def refresh_table(self, *_, delay_ms: int = 50):
@@ -425,15 +449,8 @@ class MaskResultsDock(QDockWidget):
                 self.apply_filters()
 
         ms = lambda k: stats.get(k, 0.0) * 1000.0
-        print(
-            "[MaskResultsDock] table refresh fast:\n"
-            f"  total={ms('total'):.2f} ms\n"
-            f"    class_filter_refresh={ms('class_filter_refresh'):.2f} ms\n"
-            f"    load_masks={ms('load_masks'):.2f} ms\n"
-            f"    build_rows={ms('build_rows'):.2f} ms\n"
-            f"    restore_selection={ms('restore_selection'):.2f} ms\n"
-            f"    apply_filters={ms('apply_filters'):.2f} ms"
-        )
+        logger.debug("Table refresh: total=%.2f ms (load=%.2f, build=%.2f, filters=%.2f)",
+                     ms('total'), ms('load_masks'), ms('build_rows'), ms('apply_filters'))
 
     # ------------------------------ Selection & filters -----------------------
     def _refresh_class_filter(self):
@@ -493,10 +510,9 @@ class MaskResultsDock(QDockWidget):
         self._proxy.setClassFilter(klass)
 
         self.update_status()
-        print(
-            f"[MaskResultsDock] apply_filters: {(time.perf_counter()-t0)*1000:.2f} ms  "
-            f"(rows={self._model.rowCount()}, visible={self._proxy.rowCount()})"
-        )
+        logger.debug("apply_filters: %.2f ms (rows=%d, visible=%d)",
+                     (time.perf_counter() - t0) * 1000,
+                     self._model.rowCount(), self._proxy.rowCount())
 
     def update_status(self):
         total = self._model.rowCount()

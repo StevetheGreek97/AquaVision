@@ -2,6 +2,10 @@
 from PyQt6.QtCore import QObject, pyqtSignal
 import sqlite3, csv
 
+from services.logger import get_logger
+
+logger = get_logger(__name__)
+
 class SaveResultsDBWorker(QObject):
     progress = pyqtSignal(int)   # rows written
     finished = pyqtSignal(str)   # output path
@@ -53,9 +57,11 @@ class SaveResultsDBWorker(QObject):
                     written += len(rows)
                     self.progress.emit(written)
 
+            logger.info("Saved %d annotation row(s) to %s", written, self.out_path)
             self.finished.emit(self.out_path)
 
         except Exception as e:
+            logger.exception("Saving annotations CSV to %s failed", self.out_path)
             self.error.emit(str(e))
         finally:
             if conn:

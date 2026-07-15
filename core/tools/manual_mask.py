@@ -3,6 +3,10 @@ from PyQt6.QtGui import QPen, QColor
 from PyQt6.QtWidgets import  QGraphicsEllipseItem, QGraphicsLineItem
 from PyQt6.QtCore import pyqtSignal, QObject
 
+from services.logger import get_logger
+
+logger = get_logger(__name__)
+
 class ManualMask(QObject):
     """
     A class for manually creating masks by drawing polygon shapes on the displayed image.
@@ -27,7 +31,7 @@ class ManualMask(QObject):
         Remove the last point and its corresponding line from the mask.
         """
         if not self.temp_points:
-            print("No points to remove.")
+            logger.debug("Undo requested with no points to remove")
             return
 
         # Remove the last point
@@ -38,8 +42,6 @@ class ManualMask(QObject):
         if self.temp_lines:
             last_line = self.temp_lines.pop()
             self.parent.scene.removeItem(last_line)
-
-        print("Last point and line removed.")
 
     def add_point(self, point):
         """
@@ -76,7 +78,8 @@ class ManualMask(QObject):
         Complete the current mask and add it to the list of masks.
         """
         if len(self.temp_points) < 3:
-            print("Not enough points to create a mask.")
+            logger.warning("Cannot create mask: need at least 3 points, have %d",
+                           len(self.temp_points))
             return np.array([])
         if not self.parent.parent.sidebar.has_valid_class_selection():
             self.clear_temp_items()
@@ -95,10 +98,13 @@ class ManualMask(QObject):
             [(int(item.rect().center().x()), int(item.rect().center().y())) for item in self.temp_points],
             dtype=np.float32
         )
+        image_name = self.parent.parent.state_manager.current_image_name
         class_name, selected_color = self.parent.parent.sidebar.get_selected_class_color()
-        self.parent.parent.state_manager.mask_manager.save_mask(mask_polygon, self.parent.parent.state_manager.current_image_name, class_name)
+        self.parent.parent.state_manager.mask_manager.save_mask(mask_polygon, image_name, class_name)
+        logger.info("Saved manual mask (%d points) for image %s as class %r",
+                    mask_polygon.shape[0], image_name, class_name)
         # Emit the signal
-        self.mask_added.emit(self.parent.parent.state_manager.current_image_name, mask_polygon)
+        self.mask_added.emit(image_name, mask_polygon)
         # Clear temporary items
         self.clear_temp_items()
 
@@ -115,4 +121,4 @@ class ManualMask(QObject):
             self.parent.scene.removeItem(item)
         self.temp_lines.clear()
         self.temp_points.clear()
-        print("Temporary items cleared.")
+        logger.debug("Cleared temporary items")

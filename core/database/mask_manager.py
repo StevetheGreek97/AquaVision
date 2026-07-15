@@ -2,6 +2,10 @@ import numpy as np
 import cv2
 from time import perf_counter
 
+from services.logger import get_logger
+
+logger = get_logger(__name__)
+
 SQLITE_MAX_VARIABLES = 999  # conservative default; some builds allow 32766
 CHUNK_SIZE = 900 
 
@@ -97,7 +101,7 @@ class MaskDatabaseManager:
 
         self.db.execute_query("PRAGMA foreign_keys = ON;")  # Re-enable foreign key constraints
 
-        print("✅ Mask IDs successfully reindexed!")
+        logger.debug("Reindexed mask ids")
         self.parent.masks_updated.emit()
 
     def delete_masks(self, image_name: str, mask_ids, *, profile: bool = True) -> dict:
@@ -140,16 +144,16 @@ class MaskDatabaseManager:
 
         info = {'chunks': chunks, 'rows': rows_total, 'ms': (t1 - t0) * 1000.0}
         if profile:
-            print(f"🗑️ delete_masks: {rows_total} rows in {chunks} chunk(s) "
-                f"→ {info['ms']:.2f} ms")
+            logger.debug("delete_masks: %d row(s) in %d chunk(s), %.2f ms",
+                         rows_total, chunks, info['ms'])
         return info
 
     def delete_masks_by_class(self, class_name):
         """
         Delete all masks associated with a specific class name.
         """
-        self.db.execute_query("DELETE FROM masks WHERE class_name = ?", (class_name,))
-        print(f"🗑 Deleted all masks with class name: {class_name}")
+        rows = self.db.execute_query("DELETE FROM masks WHERE class_name = ?", (class_name,))
+        logger.info("Deleted %d mask(s) of class %r", rows, class_name)
         self.parent.masks_updated.emit()
 
     def count_masks_by_class(self, class_name):

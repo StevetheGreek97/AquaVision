@@ -1,5 +1,10 @@
 from PyQt6.QtGui import QColor
 
+from services.logger import get_logger
+
+logger = get_logger(__name__)
+
+
 class ClassDatabaseManager:
     """
     Manages class storage and retrieval.
@@ -104,4 +109,4 @@ class ClassDatabaseManager:
 
         self.db.execute_query("PRAGMA foreign_keys = ON;")  # Re-enable foreign key constraints
 
-        print("✅ Mask IDs successfully reindexed!")
+        logger.debug("Reindexed class ids")

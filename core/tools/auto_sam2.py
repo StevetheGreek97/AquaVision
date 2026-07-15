@@ -7,8 +7,10 @@ from PyQt6.QtWidgets import QGraphicsPolygonItem, QMessageBox
 from PyQt6.QtCore import pyqtSignal, QObject, QPointF, QRunnable, QThreadPool, Qt
 from sam2.build_sam import build_sam2
 from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
-from services.logger import logger
+from services.logger import get_logger
 from services.file_handlers import get_resource_path
+
+logger = get_logger(__name__)
 
 
 class MaskGenerationTask(QRunnable):
@@ -26,11 +28,11 @@ class MaskGenerationTask(QRunnable):
         Execute the mask generation process in a separate thread.
         """
         try:
-            logger.info("🔄 Running SAM2 mask generation in a background thread...")
+            logger.debug("Running SAM2 automatic mask generation in background thread")
             masks = self.parent.mask_generator.generate(self.image)
 
             if not masks:
-                logger.warning("⚠️ No masks were generated.")
+                logger.warning("SAM2 automatic generation produced no masks")
                 return
 
             self.parent.current_masks = masks  # Store masks
@@ -39,10 +41,10 @@ class MaskGenerationTask(QRunnable):
             # Ask user if they want to save the masks
             self.parent.ask_user_to_save_masks(masks)
 
-            logger.info(f"✅ Generated {len(masks)} masks.")
+            logger.info("SAM2 automatic generation produced %d mask(s)", len(masks))
 
-        except Exception as e:
-            logger.error(f"❌ Error during mask generation: {e}")
+        except Exception:
+            logger.exception("SAM2 automatic mask generation failed")
 
 
 class Sam2Auto(QObject):
@@ -83,10 +85,9 @@ class Sam2Auto(QObject):
             image (numpy.ndarray): The input image for mask generation.
         """
         if image is None:
-            logger.error("❌ No image provided for mask generation.")
+            logger.warning("Cannot generate masks: no image provided")
             return
 
-        logger.info("🟢 Sending mask generation task to background thread...")
         task = MaskGenerationTask(self, image)
         self.thread_pool.start(task)
 
@@ -160,7 +161,7 @@ class Sam2Auto(QObject):
         if response == QMessageBox.StandardButton.Yes:
             self.save_masks_to_database(masks, image_name)
         else:
-            logger.info("❌ User chose not to save the masks.")
+            logger.debug("User declined to save auto-generated masks")
 
     def save_masks_to_database(self, masks, image_name):
         """
@@ -172,7 +173,7 @@ class Sam2Auto(QObject):
             mask = mask_data["segmentation"]
             self.parent.state_manager.mask_manager.save_mask(mask, image_name, class_name)
 
-        logger.info(f"✅ Successfully saved {len(masks)} masks to the database.")
+        logger.info("Saved %d auto-generated mask(s) for image %s", len(masks), image_name)
 
     def clear_masks(self):
         """
@@ -182,4 +183,4 @@ class Sam2Auto(QObject):
             self.parent.image_display.scene.removeItem(item)
         self.current_polygon_items = []
         self.current_masks = []
-        logger.info("🗑️ Cleared all masks.")
+        logger.debug("Cleared displayed masks")

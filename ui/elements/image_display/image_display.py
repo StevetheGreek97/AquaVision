@@ -6,9 +6,14 @@ from core.tools.sam2_masker import SamMasker2
 from core.tools.sam2_boxmasker import SamBoxMasker
 from core.tools.dextr_mask import DEXTRMasker
 from core.tools.intellignent_scissors import IntelligentScissors
+from ui.custom_components.mask_context_menu import MaskContextMenu
+from ui.elements.image_display.edit_modes import SplitStrokeMode, BrushEditMode
+from services.logger import get_logger
 import cv2
 import numpy as np
 import time
+
+logger = get_logger(__name__)
 
 from PyQt6.QtWidgets import QApplication
 
@@ -61,6 +66,9 @@ class ImageDisplay(QGraphicsView):
         self.masks_visible = True
         self._peeking = False               # True while H is held down
 
+        # Active mask edit mode (split stroke / brush) — see edit_modes.py
+        self._edit_mode = None
+
     # ---------- Public API ----------
 
     def display_image(self, image_path, preserve_zoom=False):
@@ -69,12 +77,12 @@ class ImageDisplay(QGraphicsView):
         Prepare a transparent overlay for fast highlights.
         """
         if not image_path:
-            print("No image path provided.")
+            logger.warning("display_image called without an image path")
             return
 
         image = cv2.imread(image_path)
         if image is None:
-            print(f"Failed to load image: {image_path}")
+            logger.error("Failed to load image %s (missing or unreadable)", image_path)
             return
 
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -98,16 +106,19 @@ class ImageDisplay(QGraphicsView):
 
         # Fit view
         if not preserve_zoom:
+            self.cancel_edit_mode()  # navigating away aborts a pending split/brush edit
             self.resetTransform()
             self._zoom_factor = 1.0
             self.scene.setSceneRect(self.pixmap_item.boundingRect())
             self.fitInView(self.pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
 
-        print(f"[display_image] base_render={(t1-t0)*1000:.2f} ms, overlay_init={(t2-t1)*1000:.2f} ms")
+        logger.debug("display_image: base_render=%.2f ms, overlay_init=%.2f ms",
+                     (t1 - t0) * 1000, (t2 - t1) * 1000)
 
-    def overlay_base_masks(self, image, alpha=0.4, outline_thickness=1):
+    def overlay_base_masks(self, image, alpha=0.4, outline_thickness=1, exclude_ids=None):
         """
         Faster base overlay: blend per class once, then draw outlines. (Your already-optimized version can live here.)
+        exclude_ids: optional set of mask ids to leave unrendered (e.g. while brush-editing one).
         """
         output = image.copy()
         if not self.masks_visible or self._peeking:
@@ -119,7 +130,9 @@ class ImageDisplay(QGraphicsView):
         # group by class for single blends
         from collections import defaultdict
         class_to_polys = defaultdict(list)
-        for _, mask, class_name, _ in masks:
+        for mask_id, mask, class_name, _ in masks:
+            if exclude_ids and mask_id in exclude_ids:
+                continue
             if mask.shape[0] >= 3:
                 class_to_polys[class_name].append(mask.astype(np.int32))
 
@@ -184,10 +197,8 @@ class ImageDisplay(QGraphicsView):
         self.highlight_item.setPixmap(QPixmap.fromImage(self._hl_img))
         t_upload = time.perf_counter()
 
-        print(f"[highlight_overlay] clear={(t_clear-t0)*1000:.2f} ms, "
-              f"paint={(t_paint-t_clear)*1000:.2f} ms ({drawn} polys), "
-              f"upload={(t_upload-t_paint)*1000:.2f} ms, "
-              f"total={(t_upload-t0)*1000:.2f} ms")
+        logger.debug("highlight_overlay: %.2f ms total (%d polygons)",
+                     (t_upload - t0) * 1000, drawn)
 
     def set_highlighted_masks(self, selected_rows):
         """
@@ -248,7 +259,7 @@ class ImageDisplay(QGraphicsView):
 
     def delete_selected_masks(self):
         if not self.highlighted_mask_ids:
-            print("No masks selected for deletion.")
+            logger.debug("Delete requested with no masks selected")
             return
 
         mask_ids_to_delete = [int(mask_id) for mask_id in self.highlighted_mask_ids]
@@ -264,13 +275,36 @@ class ImageDisplay(QGraphicsView):
         self.highlighted_mask_ids = []
         self.refresh_masks()
 
-        # Optionally log profiling info to your logger
-        from services.logger import logger
-        logger.info(f"Deleted {info['rows']} mask(s) in {info['ms']:.2f} ms over {info['chunks']} chunk(s)")
+        logger.info("Deleted %d selected mask(s)", info['rows'])
+
+    # ---------- Edit modes (split stroke / brush — see edit_modes.py) ----------
+
+    def start_edit_mode(self, mode):
+        """Activate a MaskEditMode; any previous mode is cancelled first."""
+        self.cancel_edit_mode()
+        self.clear_selection()
+        if mode.start():
+            self._edit_mode = mode
+            self.setCursor(mode.cursor)
+
+    def cancel_edit_mode(self):
+        if self._edit_mode is not None:
+            mode, self._edit_mode = self._edit_mode, None
+            mode.stop()
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+
+    def start_split_mode(self, mask_id):
+        self.start_edit_mode(SplitStrokeMode(self, mask_id))
+
+    def start_brush_mode(self, mask_id):
+        self.start_edit_mode(BrushEditMode(self, mask_id))
 
     # ---------- Events ----------
 
     def wheelEvent(self, event):
+        if self._edit_mode is not None and self._edit_mode.wheel(event):
+            return
+
         zoom_step = 1.1
         if event.angleDelta().y() > 0:
             if self._zoom_factor < self._zoom_max:
@@ -283,6 +317,9 @@ class ImageDisplay(QGraphicsView):
                 self._zoom_factor *= inv
 
     def keyPressEvent(self, event):
+        if self._edit_mode is not None and self._edit_mode.key_press(event):
+            return
+
         if event.key() == Qt.Key.Key_S:
             if self.parent.tool_manager.current_tool:
                 self.parent.tool_manager.current_tool.complete_mask()
@@ -304,33 +341,18 @@ class ImageDisplay(QGraphicsView):
         if event.button() == Qt.MouseButton.LeftButton:
             scene_pos = self.mapToScene(event.position().toPoint())
             point = (int(scene_pos.x()), int(scene_pos.y()))
+
+            if self._edit_mode is not None and self._edit_mode.mouse_press(
+                    point, Qt.MouseButton.LeftButton):
+                return
+
             selected_mask_ids = self.get_clicked_masks(point)
 
             if selected_mask_ids:
-                for mask_id in selected_mask_ids:
-                    if mask_id not in self.highlighted_mask_ids:
-                        self.highlighted_mask_ids.append(mask_id)
-                self.highlight_selected_masks(self.highlighted_mask_ids)
-
-                # Ensure results dialog is open
-                if not hasattr(self.parent, 'annotations') or self.parent.annotations is None:
-                    self.parent.show_results()
-
-                self.parent.annotations.table.setSelectionMode(QTableWidget.SelectionMode.MultiSelection)
-
-                selected_rows = []
-                for row in range(self.parent.annotations.table.rowCount()):
-                    table_mask_id = self.parent.annotations.table.item(row, 1).text()
-                    if table_mask_id in selected_mask_ids:
-                        self.parent.annotations.table.selectRow(row)
-                        selected_rows.append({
-                            "image_name": self.parent.annotations.table.item(row, 0).text(),
-                            "mask_id": table_mask_id,
-                            "class": self.parent.annotations.table.item(row, 3).text(),
-                        })
-
-                if selected_rows:
-                    self.parent.annotations.masks_selected.emit(selected_rows)
+                self._select_masks(selected_mask_ids)
+            elif self.highlighted_mask_ids and self.parent.tool_manager.current_tool is None:
+                # Click on empty area with no tool active: deselect everything
+                self.clear_selection()
 
             tool = self.parent.tool_manager.current_tool
             if isinstance(tool, ManualMask):
@@ -346,6 +368,12 @@ class ImageDisplay(QGraphicsView):
                 tool.is_drawing_box = True
 
         elif event.button() == Qt.MouseButton.RightButton:
+            if self._edit_mode is not None:
+                scene_pos = self.mapToScene(event.position().toPoint())
+                point = (int(scene_pos.x()), int(scene_pos.y()))
+                if self._edit_mode.mouse_press(point, Qt.MouseButton.RightButton):
+                    return
+
             tool = self.parent.tool_manager.current_tool
             if isinstance(tool, ManualMask):
                 tool.pop_last_point()
@@ -353,6 +381,9 @@ class ImageDisplay(QGraphicsView):
                 scene_pos = self.mapToScene(event.position().toPoint())
                 point = (int(scene_pos.x()), int(scene_pos.y()))
                 tool.add_point(point, 0)
+            elif tool is None:
+                # No tool active: right-click offers bulk class assignment
+                self._show_mask_context_menu(event)
 
         elif event.button() == Qt.MouseButton.MiddleButton:
             self._is_panning = True
@@ -377,6 +408,9 @@ class ImageDisplay(QGraphicsView):
 
         self.x, self.y = point
 
+        if self._edit_mode is not None and self._edit_mode.mouse_move(point):
+            return
+
         tool = self.parent.tool_manager.current_tool
         if isinstance(tool, IntelligentScissors) and getattr(tool, "seed_points", None):
             tool.update_dynamic_path((self.x, self.y))
@@ -385,6 +419,9 @@ class ImageDisplay(QGraphicsView):
             tool.update_box_preview(tool.box_start, point)
 
     def mouseReleaseEvent(self, event):
+        if self._edit_mode is not None and self._edit_mode.mouse_release(event.button()):
+            return
+
         if event.button() == Qt.MouseButton.LeftButton:
             tool = self.parent.tool_manager.current_tool
             if isinstance(tool, SamBoxMasker) and getattr(tool, "is_drawing_box", False):
@@ -401,6 +438,68 @@ class ImageDisplay(QGraphicsView):
             super().mouseReleaseEvent(event)
 
     # ---------- Helpers ----------
+
+    def clear_selection(self):
+        """Deselect all masks (highlight overlay + annotations table)."""
+        self.highlighted_mask_ids = []
+        self.highlight_selected_masks([])
+
+        annotations = getattr(self.parent, "annotations", None)
+        if annotations is not None:
+            annotations.table.clearSelection()
+
+    def _select_masks(self, selected_mask_ids, skip_already_selected=False):
+        """
+        Add mask ids to the highlight selection and sync the annotations table.
+
+        In MultiSelection mode selectRow() TOGGLES, so rows that are already
+        selected would flip off. Click-selection relies on that toggle to
+        deselect; bulk selection (e.g. "Select all") must pass
+        skip_already_selected=True to leave selected rows untouched.
+        """
+        for mask_id in selected_mask_ids:
+            if mask_id not in self.highlighted_mask_ids:
+                self.highlighted_mask_ids.append(mask_id)
+        self.highlight_selected_masks(self.highlighted_mask_ids)
+
+        # Ensure results dialog is open
+        if not hasattr(self.parent, 'annotations') or self.parent.annotations is None:
+            self.parent.show_results()
+
+        table = self.parent.annotations.table
+        table.setSelectionMode(QTableWidget.SelectionMode.MultiSelection)
+        sel_model = table.selectionModel()
+
+        selected_rows = []
+        for row in range(table.rowCount()):
+            table_mask_id = table.item(row, 1).text()
+            if table_mask_id in selected_mask_ids:
+                already = sel_model.isSelected(table.model().index(row, 0))
+                if not (skip_already_selected and already):
+                    table.selectRow(row)
+                selected_rows.append({
+                    "image_name": table.item(row, 0).text(),
+                    "mask_id": table_mask_id,
+                    "class": table.item(row, 3).text(),
+                })
+
+        if selected_rows:
+            self.parent.annotations.masks_selected.emit(selected_rows)
+
+    def _show_mask_context_menu(self, event):
+        """Right-click on the image: bulk class assignment for the selected masks."""
+        scene_pos = self.mapToScene(event.position().toPoint())
+        point = (int(scene_pos.x()), int(scene_pos.y()))
+
+        # Right-clicking an unselected mask selects it first
+        clicked = self.get_clicked_masks(point)
+        if clicked and not any(mid in self.highlighted_mask_ids for mid in clicked):
+            self._select_masks(clicked)
+
+        image_name = self.parent.state_manager.current_image_name
+        rows = [(image_name, int(mid)) for mid in self.highlighted_mask_ids]
+        menu = MaskContextMenu(self.parent, rows, parent=self)
+        menu.exec(event.globalPosition().toPoint())
 
     def _rebuild_mask_index(self):
         """Cache mask_id -> polygon(int32) for fast highlight path."""

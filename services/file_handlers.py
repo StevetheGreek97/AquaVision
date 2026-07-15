@@ -2,6 +2,10 @@ import os
 import numpy as np
 import sys
 import yaml
+
+from services.logger import get_logger
+
+logger = get_logger(__name__)
 def loader(folder_path):
     valid_extensions = (".png", ".jpg", ".jpeg", ".bmp", ".tiff", '.tif')
     if folder_path:
@@ -66,7 +70,7 @@ def write_annotations_to_file(image_name, yolo_annotations, export_dir):
     txt_filename = os.path.join(export_dir, f"{image_name}.txt")
     with open(txt_filename, 'w') as file:
         file.write("\n".join(yolo_annotations) + '\n')
-    print(f"Annotations saved to: {txt_filename}")
+    logger.debug("Wrote %d annotation(s) to %s", len(yolo_annotations), txt_filename)
 
 
 

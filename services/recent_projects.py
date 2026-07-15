@@ -11,6 +11,10 @@ from PyQt6.QtCore import QTimer
 import json, os, platform, shutil, datetime
 from typing import List
 
+from services.logger import get_logger
+
+logger = get_logger(__name__)
+
 APP_DIR_NAME = "segmentme"
 RECENT_FILE_NAME = "recent.json"
 BACKUP_SUFFIX = ".bak"
@@ -40,11 +44,12 @@ def _read_json_safely(p: Path):
         return []
     except Exception:
         # backup corrupt file and reset
+        logger.warning("Recent-projects file %s is corrupt; backing it up and starting fresh", p)
         ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         try:
             p.rename(p.with_suffix(p.suffix + f".{ts}{BACKUP_SUFFIX}"))
         except Exception:
-            pass
+            logger.exception("Could not back up corrupt recent-projects file %s", p)
         return []
 
 def _write_json_safely(p: Path, items: List[str]):
@@ -109,8 +114,10 @@ def delete_project_and_remove_recent(db_path: str) -> bool:
         remove_recent_project(db_path)
         if root.exists():
             shutil.rmtree(root)
+        logger.info("Deleted project folder %s", root)
         return True
     except Exception:
+        logger.exception("Failed to delete project folder for %s", db_path)
         return False
 
 _CHUNK = 900  # stay under SQLite's 999-variable limit
@@ -167,6 +174,7 @@ def _sync_seproj_images(main_window, project_root, image_paths) -> bool:
         main_window.state_manager.masks_updated.emit()
     except Exception as exc:
         db.rollback()
+        logger.exception("Failed to remove orphaned masks for %d missing image(s)", len(missing))
         QMessageBox.warning(
             main_window, "DB Cleanup Warning",
             f"Could not remove orphaned masks:\n{exc}"
@@ -205,6 +213,7 @@ def initialize_project(main_window, db_path):
         return  # User canceled on missing-images dialog
 
     if image_paths:
+        logger.info("Loaded %d image(s) from %s", len(image_paths), images_dir)
         main_window.project_root = project_root
         main_window.config = config
         main_window.state_manager.set_image_paths(image_paths)

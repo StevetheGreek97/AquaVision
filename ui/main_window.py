@@ -27,7 +27,9 @@ from core.managers.tool_manager import ToolManager
 from core.trainer.worker import TrainingWorker
 
 from services.file_handlers import loader, get_resource_path
-from services.logger import logger, log_memory_usage
+from services.logger import get_logger, log_memory_usage
+
+logger = get_logger(__name__)
 
 from datetime import datetime
 from core.save_res import SaveResultsDBWorker
@@ -133,10 +135,11 @@ class MainApp(QMainWindow):
             if self.tool_manager.current_tool:
                 self.tool_manager.current_tool.clear_temp_items()
             self.image_display.display_image(path_)
-            print(f"Current image: {self.state_manager.current_image_index + 1}/{len(self.state_manager.image_paths)}")
+            logger.debug("Showing image %d/%d", self.state_manager.current_image_index + 1,
+                         len(self.state_manager.image_paths))
             log_memory_usage()
         else:
-            logger.info("No next image available.")
+            logger.debug("Already at the last image")
 
     def previous_image(self):
         path_ = self.state_manager.previous_image()
@@ -144,14 +147,15 @@ class MainApp(QMainWindow):
             if self.tool_manager.current_tool:
                 self.tool_manager.current_tool.clear_temp_items()
             self.image_display.display_image(path_)
-            print(f"Current image: {self.state_manager.current_image_index + 1}/{len(self.state_manager.image_paths)}")
+            logger.debug("Showing image %d/%d", self.state_manager.current_image_index + 1,
+                         len(self.state_manager.image_paths))
         else:
-            logger.info("No previous image available.")
+            logger.debug("Already at the first image")
 
     # ---------- Inference ----------
     def popup_inference_dialog(self, dir, mode, display_text):
         if not self.state_manager.image_paths:
-            print("No images loaded.")
+            logger.warning("Inference requested with no images loaded")
             return
 
         dialog = InferenceDialog(dir, self)
@@ -223,8 +227,6 @@ class MainApp(QMainWindow):
             val = settings["val"]
             test = settings["test"]
 
-            print(f"📊 Train: {train}%, Val: {val}%, Test: {test}%")
-
             if format_ == "yolo":
                 exporter = YOLOExporter(self)
                 exporter.export_all_annotations(train, val, test)
@@ -265,7 +267,7 @@ class MainApp(QMainWindow):
 
             def cleanup_monitor():
                 if self.training_thread and self.training_thread.isRunning():
-                    print("🛑 Stopping training thread before cleanup...")
+                    logger.debug("Stopping training thread before cleanup")
                     self.training_thread.quit()
                     self.training_thread.wait()
                 if self.training_monitor.isVisible():
@@ -306,7 +308,7 @@ class MainApp(QMainWindow):
     def closeEvent(self, event):
         # Stop export thread if present
         if hasattr(self, 'export_thread') and self.export_thread.isRunning():
-            print("Stopping export thread...")
+            logger.debug("Stopping export thread")
             self.export_thread.stop()
             self.export_thread.wait()
         # Stop inference cleanly

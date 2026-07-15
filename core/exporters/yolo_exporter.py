@@ -6,11 +6,16 @@ from ultralytics.data.split import autosplit
 from PyQt6.QtWidgets import QMessageBox
 from core.exporters.base_exporter import BaseExporter
 from services.file_handlers import normalize_coordinates, write_annotations_to_file
+from services.logger import get_logger
 from pathlib import Path
+
+logger = get_logger(__name__)
+
+
 class YOLOExporter(BaseExporter):
     def export_all_annotations(self, train_pct, val_pct, test_pct):
         if not self.parent.state_manager.image_paths:
-            print("❌ No images loaded to export annotations.")
+            logger.warning("Export requested with no images loaded; ignoring")
             return
 
         if self.export_dir.exists():
@@ -23,25 +28,29 @@ class YOLOExporter(BaseExporter):
             )
 
             if reply != QMessageBox.StandardButton.Yes:
-                print("❌ Export cancelled by user to prevent overwriting.")
+                logger.info("Export cancelled by user (labels folder exists)")
                 return
 
             shutil.rmtree(self.export_dir)
-            print(f"⚠️ Existing labels folder deleted: {self.export_dir}")
+            logger.info("Deleted existing labels folder %s", self.export_dir)
 
         self.export_dir.mkdir(parents=True, exist_ok=True)
 
         progress_dialog = self._show_progress_dialog(len(self.parent.state_manager.image_paths))
 
+        logger.info("Exporting YOLO annotations for %d image(s) to %s (split %d/%d/%d)",
+                    len(self.parent.state_manager.image_paths), self.export_dir,
+                    train_pct, val_pct, test_pct)
+
         for index, image_path in enumerate(self.parent.state_manager.image_paths):
             if progress_dialog.wasCanceled():
-                print("❌ Export canceled by the user.")
+                logger.info("Export cancelled by user after %d image(s)", index)
                 break
 
             try:
                 self._process_image(Path(image_path))
-            except Exception as e:
-                print(f"❌ Error processing {image_path}: {e}")
+            except Exception:
+                logger.exception("Failed to export annotations for %s; continuing", image_path)
 
             progress_dialog.setValue(index + 1)
 
@@ -54,13 +63,14 @@ class YOLOExporter(BaseExporter):
 
         self.generate_data_yaml()
         progress_dialog.close()
+        logger.info("YOLO export finished")
 
     def _process_image(self, image_path: Path):
         image_name = image_path.stem
         masks, class_ids = self.fetch_image_masks_from_db(image_name)
 
         if not masks:
-            print(f"⚠️ No masks found for image: {image_name}. Skipping...")
+            logger.debug("No masks for image %s; skipped", image_name)
             return
 
         image = self._load_image(image_path)
@@ -78,7 +88,8 @@ class YOLOExporter(BaseExporter):
         for mask_id, mask_array, class_name, _ in db_masks:
             class_id = self.parent.state_manager.class_manager.get_idx_by_name(class_name)
             if class_id is None:
-                print(f"❌ Warning: Class '{class_name}' not found for mask ID {mask_id}. Skipping...")
+                logger.warning("Class %r not found for mask %s; mask skipped in export",
+                               class_name, mask_id)
                 continue
             masks.append(mask_array)
             class_ids.append(class_id)

@@ -3,6 +3,11 @@ from PyQt6.QtGui import QAction, QFont
 from ui.dialogs.export_dialog import ExportDialog 
 
 from services.file_handlers import get_resource_path
+from services.logger import get_logger
+
+logger = get_logger(__name__)
+
+
 class MenuBar(QMenuBar):
     """
     A custom menu bar with options for File, Actions, View, and Help menus.
@@ -46,7 +51,7 @@ class MenuBar(QMenuBar):
         actions_menu = self.addMenu("Actions")
 
         actions = [
-            ("Run Inference", lambda: print("Run Inference clicked") or self.parent.popup_inference_dialog(self.parent.models_dir, 'yolo', 'Running inference...')),
+            ("Run Inference", lambda: self.parent.popup_inference_dialog(self.parent.models_dir, 'yolo', 'Running inference...')),
              ("Train Custom Model", self.parent.popup_training_dialog)
         ]
 
@@ -141,7 +146,7 @@ class MenuBar(QMenuBar):
             settings = dialog.get_settings()
 
             if not settings["output_dir"]:
-                print("❌ No output folder selected.")
+                logger.warning("Export aborted: no output folder selected")
                 return
 
             #  Call your export logic

@@ -2,6 +2,10 @@ from PyQt6.QtCore import QObject, pyqtSignal
 from pathlib import Path
 import subprocess
 
+from services.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 class TrainingWorker(QObject):
     log_signal = pyqtSignal(str)
@@ -55,6 +59,9 @@ class TrainingWorker(QObject):
             ]
 
             self.log_signal.emit(f"🔧 Command: {' '.join(args)}")
+            logger.info("Launching training: model=%s, data=%s, epochs=%s, device=%s",
+                        self.settings.model, self.settings.data,
+                        self.settings.epochs, self.settings.device)
 
             self.process = subprocess.Popen(
                 args,
@@ -68,8 +75,10 @@ class TrainingWorker(QObject):
                     self.log_signal.emit(line.strip())
 
             self.process.wait()
+            logger.info("Training subprocess exited with code %s", self.process.returncode)
 
         except Exception as e:
+            logger.exception("Training subprocess failed")
             self.log_signal.emit(f"❌ Error: {e}")
 
         finally:

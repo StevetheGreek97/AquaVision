@@ -1,29 +1,82 @@
+"""
+Application logging.
+
+Usage:
+    from services.logger import get_logger
+    logger = get_logger(__name__)
+
+Records carry the module name (e.g. "aquavision.ui.main_window"). Console
+shows INFO+ (override with the AQUAVISION_LOG_LEVEL env var, e.g. DEBUG);
+a rotating file in the user config dir keeps DEBUG+ with tracebacks so
+crashes in the field can be diagnosed after the fact.
+"""
 import logging
+import logging.handlers
 import os
-import psutil  # For memory usage monitoring
+import platform
+from pathlib import Path
 
-# Create a logger
-logger = logging.getLogger('log')
-logger.setLevel(logging.DEBUG)
+import psutil
 
-# Console-only handler
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.DEBUG)
+APP_LOGGER_NAME = "aquavision"
 
-# Formatter
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-console_handler.setFormatter(formatter)
 
-# Add only the console handler
-logger.addHandler(console_handler)
+def _log_dir() -> Path:
+    if platform.system() == "Windows":
+        base = Path(os.getenv("APPDATA", Path.home() / "AppData" / "Roaming"))
+        return base / "segmentme" / "logs"
+    if platform.system() == "Darwin":
+        return Path.home() / "Library" / "Logs" / "segmentme"
+    return Path.home() / ".config" / "segmentme" / "logs"
 
-# Optional: Suppress noisy libraries
-logging.getLogger("urllib3").setLevel(logging.WARNING)
 
-# Function to log memory usage
+def _configure() -> logging.Logger:
+    app = logging.getLogger(APP_LOGGER_NAME)
+    if app.handlers:  # already configured
+        return app
+
+    app.setLevel(logging.DEBUG)
+    app.propagate = False
+
+    console = logging.StreamHandler()
+    level_name = os.getenv("AQUAVISION_LOG_LEVEL", "INFO").upper()
+    console.setLevel(getattr(logging, level_name, logging.INFO))
+    console.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)-8s %(name)s: %(message)s", "%H:%M:%S"))
+    app.addHandler(console)
+
+    try:
+        log_dir = _log_dir()
+        log_dir.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.handlers.RotatingFileHandler(
+            log_dir / "aquavision.log", maxBytes=2_000_000, backupCount=3, encoding="utf-8")
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(logging.Formatter(
+            "%(asctime)s %(levelname)-8s %(name)s [%(filename)s:%(lineno)d]: %(message)s"))
+        app.addHandler(file_handler)
+    except OSError as e:
+        app.warning("File logging disabled (cannot write to %s): %s", _log_dir(), e)
+
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    return app
+
+
+def get_logger(name: str | None = None) -> logging.Logger:
+    """Return a module logger nested under the app logger."""
+    _configure()
+    if not name or name == "__main__":
+        return logging.getLogger(APP_LOGGER_NAME)
+    return logging.getLogger(f"{APP_LOGGER_NAME}.{name}")
+
+
+# Back-compat: modules that still do `from services.logger import logger`
+logger = _configure()
+
+
 def log_memory_usage():
     process = psutil.Process(os.getpid())
     memory_info = process.memory_info()
-    logger.info(f"Memory Usage: {memory_info.rss / (1024 ** 2):.2f} MB")  # RSS in MB
+    logger.debug("Memory usage: %.2f MB RSS", memory_info.rss / (1024 ** 2))
 
-__all__ = ["logger", "log_memory_usage"]
+
+__all__ = ["logger", "get_logger", "log_memory_usage"]

@@ -3,6 +3,10 @@ import pyqtgraph as pg
 from PyQt6.QtWidgets import QDockWidget, QVBoxLayout, QWidget, QTabWidget
 from PyQt6.QtCore import Qt
 
+from services.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 class MaskStatisticsDock(QDockWidget):
     def __init__(self, parent):
@@ -78,5 +82,5 @@ class MaskStatisticsDock(QDockWidget):
 
             axis = plot_widget.getAxis('bottom')
             axis.setTicks([[(i, name) for i, name in enumerate(class_names)]])
-        except Exception as e:
-            print(f"❌ Error fetching statistics: {e}")
+        except Exception:
+            logger.exception("Failed to refresh annotation statistics plot")

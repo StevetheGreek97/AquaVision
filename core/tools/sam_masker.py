@@ -7,6 +7,10 @@ from segment_anything import sam_model_registry, SamPredictor  # Use SAM 1 impor
 import torch
 import cv2
 
+from services.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 class SamMasker(QObject):
     """
@@ -59,7 +63,8 @@ class SamMasker(QObject):
             self.background_points.append(point)
             self.background_items.append(ellipse)  # Track the QGraphicsItem
 
-        print(f"Added point: {point}, Label: {label}")
+        logger.debug("Added %s point at %s",
+                     "foreground" if label == 1 else "background", point)
 
     def display_polygon(self, polygon_points, color=QColor(0, 255, 0), line_width=2):
         """
@@ -76,7 +81,7 @@ class SamMasker(QObject):
             self.current_polygon_item = None
 
         if not polygon_points:
-            print("No polygon points to display.")
+            logger.warning("No polygon points to display")
             return
 
         # Create a QPolygonF from the points
@@ -156,7 +161,7 @@ class SamMasker(QObject):
             self.current_polygon_item = None
 
         self.mask = None
-        print("Temporary items cleared.")
+        logger.debug("Cleared temporary items")
 
     def complete_mask(self):
         """
@@ -169,4 +174,5 @@ class SamMasker(QObject):
         DatabaseManager().save_mask(self.mask, self.parent.parent.state_manager.current_image_name)
         self.mask_added.emit(self.parent.parent.state_manager.current_image_name, self.mask)
         self.clear_temp_items()
-        print(f"Mask saved")
+        logger.info("Saved SAM mask for image %s",
+                    self.parent.parent.state_manager.current_image_name)

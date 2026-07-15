@@ -1,10 +1,13 @@
 from ui.main_window import MainApp
 from ui.dialogs.project_dialog import ProjectStartupDialog
 from services.recent_projects import save_recent_project, initialize_project
+from services.logger import get_logger
 
 import sys
 from pathlib import Path
 from PyQt6.QtWidgets import QApplication
+
+logger = get_logger(__name__)
 
 app = QApplication(sys.argv)
 
@@ -20,7 +23,7 @@ if len(sys.argv) > 1 and sys.argv[1].endswith(".SEproj"):
         window.show()
         sys.exit(app.exec())
     else:
-        print(f"❌ Cannot find database at {db_path}")
+        logger.error("Cannot open %s: expected project database at %s", seproj_file, db_path)
         sys.exit(1)
 else:
     dialog = ProjectStartupDialog()

@@ -2,10 +2,13 @@ import os
 from core.database.class_manager import ClassDatabaseManager
 from core.database.connection import DatabaseConnection
 from core.database.mask_manager import MaskDatabaseManager
+from services.logger import get_logger
 
 from PyQt6.QtGui import QColor
 from PyQt6.QtCore import QObject, pyqtSignal
 from pathlib import Path
+
+logger = get_logger(__name__)
 
 class StateManager(QObject):
     image_changed = pyqtSignal(str)
@@ -22,9 +25,8 @@ class StateManager(QObject):
 
         # Shared Database Connection
         self.db = DatabaseConnection(db_path)
-        
-        print(f"Project root directory: {self.project_root}")
-        print(f"Database path: {db_path}")
+
+        logger.info("Opened project %s (database: %s)", self.project_root, db_path)
 
 
         # db  Managers
