@@ -1,3 +1,7 @@
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
+import torch
 from ui.main_window import MainApp
 from ui.dialogs.project_dialog import ProjectStartupDialog
 from services.recent_projects import save_recent_project, initialize_project
