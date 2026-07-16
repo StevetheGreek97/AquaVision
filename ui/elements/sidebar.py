@@ -6,6 +6,7 @@ from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QColor
 import qtawesome as qta
 import re
+from core.tools import sam_registry
 from services.file_handlers import get_tooltip
 from services.seproj import update_classes as seproj_update_classes
 from services.logger import get_logger
@@ -127,14 +128,6 @@ class Sidebar(QWidget):
             on_toggle=self.toggle_manual_mask
         )
 
-        # SAM2 Box
-        self.sam2box = self._create_toggle(
-            icon="fa5s.vector-square",  # box-like
-            label="SAM2 Box",
-            tooltip="sam2_box",
-            on_toggle=self.toggle_sam2_boxer
-        )
-
         # DEXTR
         self.dextr = self._create_toggle(
             icon="fa5s.magic",  # “smart” selection vibe
@@ -143,13 +136,14 @@ class Sidebar(QWidget):
             on_toggle=self.toggle_dextr
         )
 
-        # SAM2
-        self.sam2 = self._create_toggle(
+        # SAM (model variant chosen in Settings -> SAM Model)
+        self.sam = self._create_toggle(
             icon="fa5s.robot",
-            label="SAM2",
-            tooltip="sam2",
-            on_toggle=self.toggle_sam2
+            label="SAM",
+            tooltip="sam",
+            on_toggle=self.toggle_sam
         )
+        self.update_sam_tooltip()
 
         # Intelligent Scissors
         self.intelligent_scissors = self._create_toggle(
@@ -162,13 +156,12 @@ class Sidebar(QWidget):
         # Arrange as two rows for balance
         row1 = QHBoxLayout(); row1.setSpacing(8)
         row1.addWidget(self.manual_mask, 1)
-        row1.addWidget(self.sam2box, 1)
+        row1.addWidget(self.sam, 1)
         row1.addWidget(self.dextr, 1)
 
         row2 = QHBoxLayout(); row2.setSpacing(8)
-        row2.addWidget(self.sam2, 1)
         row2.addWidget(self.intelligent_scissors, 1)
-        row2.addStretch(1)
+        row2.addStretch(2)
 
         layout.addLayout(row1)
         layout.addLayout(row2)
@@ -204,16 +197,9 @@ class Sidebar(QWidget):
     # Toggle handlers (keep your tool-manager logic, but make toggles exclusive visually)
     # ----------------------------------------------------------------------
     def _uncheck_others(self, keep):
-        for btn in [self.manual_mask, self.sam2box, self.dextr, self.sam2, self.intelligent_scissors]:
+        for btn in [self.manual_mask, self.dextr, self.sam, self.intelligent_scissors]:
             if btn is not keep:
                 btn.setChecked(False)
-
-    def toggle_sam2_boxer(self):
-        if self.sam2box.isChecked():
-            self._uncheck_others(self.sam2box)
-            self.parent.tool_manager.enable_tool("sam2_box")
-        else:
-            self.parent.tool_manager.disable_tools()
 
     def toggle_dextr(self):
         if self.dextr.isChecked():
@@ -222,12 +208,18 @@ class Sidebar(QWidget):
         else:
             self.parent.tool_manager.disable_tools()
 
-    def toggle_sam2(self):
-        if self.sam2.isChecked():
-            self._uncheck_others(self.sam2)
-            self.parent.tool_manager.enable_tool("sam2")
+    def toggle_sam(self):
+        if self.sam.isChecked():
+            self._uncheck_others(self.sam)
+            self.parent.tool_manager.enable_tool("sam")
         else:
             self.parent.tool_manager.disable_tools()
+
+    def update_sam_tooltip(self):
+        """Show the currently selected model variant in the SAM tooltip."""
+        variant = sam_registry.get_selected_variant()
+        self.sam.setToolTip(f"{get_tooltip('sam')}\nCurrent model: {variant.label} "
+                            "(change in Settings -> SAM Model)")
 
     def toggle_intelligent_scissors(self):
         if self.intelligent_scissors.isChecked():

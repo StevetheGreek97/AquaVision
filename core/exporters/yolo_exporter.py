@@ -1,7 +1,5 @@
 import cv2
 import shutil
-import numpy as np
-from shapely.geometry import Polygon
 from ultralytics.data.split import autosplit
 from PyQt6.QtWidgets import QMessageBox
 from core.exporters.base_exporter import BaseExporter
@@ -105,12 +103,7 @@ class YOLOExporter(BaseExporter):
     def _convert_masks_to_yolo(self, masks, class_ids, img_width, img_height):
         return [
             f"{class_id - 1} " + " ".join(f"{coord:.6f}" for coord in normalize_coordinates(
-                self._simplify_polygon(mask), img_width, img_height
+                self.simplify_polygon(mask), img_width, img_height
             ).flatten())
             for class_id, mask in zip(class_ids, masks)
         ]
-
-    @staticmethod
-    def _simplify_polygon(mask, tolerance=0.01):
-        polygon = Polygon(mask)
-        return np.array(polygon.simplify(tolerance, preserve_topology=True).exterior.coords)

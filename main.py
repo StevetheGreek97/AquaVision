@@ -1,13 +1,21 @@
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
+import sys
+
+if len(sys.argv) > 1 and sys.argv[1] == "--inference-worker":
+    # Re-invoked as a plain subprocess by core.inference_manager.
+    # Handle it before any PyQt6/GUI import so the worker stays lightweight
+    # and works identically whether this is `python main.py` or a frozen exe.
+    from core.inference_worker import main as _inference_worker_main
+    sys.exit(_inference_worker_main())
+
 import torch
 from ui.main_window import MainApp
 from ui.dialogs.project_dialog import ProjectStartupDialog
 from services.recent_projects import save_recent_project, initialize_project
 from services.logger import get_logger
 
-import sys
 from pathlib import Path
 from PyQt6.QtWidgets import QApplication
 

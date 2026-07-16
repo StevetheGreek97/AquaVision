@@ -23,6 +23,7 @@ from ui.dialogs.training_monitor import TrainingMonitor
 from core.state import StateManager
 from core.inference_manager import InferenceManager
 from core.exporters.yolo_exporter import YOLOExporter
+from core.exporters.coco_exporter import COCOExporter
 from core.managers.tool_manager import ToolManager
 from core.trainer.worker import TrainingWorker
 
@@ -47,7 +48,6 @@ class MainApp(QMainWindow):
         self.setWindowIcon(QIcon(icon_path))
 
         self.models_dir = get_resource_path("models/yolo")
-        self.sam_dir = get_resource_path("models/sam")
         self.current_model_path = None
 
         # Core state / managers
@@ -153,36 +153,53 @@ class MainApp(QMainWindow):
             logger.debug("Already at the first image")
 
     # ---------- Inference ----------
-    def popup_inference_dialog(self, dir, mode, display_text):
+    def popup_inference_dialog(self, dir, display_text):
         if not self.state_manager.image_paths:
             logger.warning("Inference requested with no images loaded")
             return
 
         dialog = InferenceDialog(dir, self)
         if dialog.exec():
+            mode = dialog.get_mode()
             threshold = dialog.get_threshold()
-            selected_model = dialog.get_selected_model()
             img_dim = dialog.get_image_dimensions()
-            if selected_model:
+            sam_variant_key = None
+
+            if mode == "sam":
+                sam_variant_key = dialog.get_sam_variant_key()
+                # A user-browsed custom checkpoint travels as model_path,
+                # just like a custom YOLO model.
+                model_path = dialog.get_sam_custom_path()
+                if sam_variant_key is None and model_path is None:
+                    QMessageBox.warning(
+                        self, "Run Inference",
+                        "No SAM model selected. Download one in Settings -> SAM Model "
+                        "or browse for a custom SAM2 checkpoint (.pt)."
+                    )
+                    return
+            else:
+                selected_model = dialog.get_selected_model()
+                if not selected_model:
+                    return
                 # If the dialog returns an absolute path for custom model, use it as-is.
-                self.current_model_path = (
-                    selected_model if os.path.isabs(selected_model) else os.path.join(dir, selected_model)
-                )
+                model_path = selected_model if os.path.isabs(selected_model) else os.path.join(dir, selected_model)
+                self.current_model_path = model_path
 
-                # Stop any ongoing inference
-                if self.inference_manager:
-                    self.inference_manager.stop_inference()
+            # Stop any ongoing inference
+            if self.inference_manager:
+                self.inference_manager.stop_inference()
 
-                # Start fresh inference
-                self.inference_manager = InferenceManager(self, mode, display_text)
-                # (Optional) light debounce on results refresh while inferring
-                self._schedule_results_refresh(delay_ms=100)
-                self.inference_manager.run_inference(
-                    self.current_model_path,
-                    self.state_manager.image_paths,
-                    threshold,
-                    img_dim
-                )
+            # Start fresh inference
+            self.inference_manager = InferenceManager(self, mode, display_text)
+            # (Optional) light debounce on results refresh while inferring
+            self._schedule_results_refresh(delay_ms=100)
+            self.inference_manager.run_inference(
+                model_path,
+                self.state_manager.image_paths,
+                threshold,
+                img_dim,
+                sam_variant_key=sam_variant_key,
+            )
 
     # ---------- Docks / Results ----------
     def show_results(self):
@@ -200,10 +217,10 @@ class MainApp(QMainWindow):
             self.state_manager.image_changed.connect(self.statistics.refresh_plot)
             self.state_manager.masks_updated.connect(self.statistics.refresh_plot)
 
-        # One initial refresh when opening
-        self._refresh_results_and_stats()
+        # Show docks first so the initial refresh's isVisible() checks pass
         self.annotations.show()
         self.statistics.show()
+        self._refresh_results_and_stats()
 
     def _schedule_results_refresh(self, delay_ms: int = 50):
         """Coalesce many mask updates into a single UI refresh."""
@@ -231,7 +248,8 @@ class MainApp(QMainWindow):
                 exporter = YOLOExporter(self)
                 exporter.export_all_annotations(train, val, test)
             elif format_ == "coco":
-                QMessageBox.information(self, "Coming Soon", "COCO export not implemented yet.")
+                exporter = COCOExporter(self)
+                exporter.export_all_annotations(train, val, test)
             else:
                 QMessageBox.warning(self, "Unsupported Format", f"Export format '{format_}' not supported.")
 

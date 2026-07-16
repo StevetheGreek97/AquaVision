@@ -1,9 +1,13 @@
+import gc
+
+import torch
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
 from core.tools.manual_mask import ManualMask
+from core.tools import sam_registry, sam3_loader
 from core.tools.sam2_masker import SamMasker2
+from core.tools.sam3_masker import Sam3Masker
 from core.tools.intellignent_scissors import IntelligentScissors
-from core.tools.sam2_boxmasker import SamBoxMasker
 from core.tools.dextr_mask import DEXTRMasker
 from services.logger import get_logger
 
@@ -31,10 +35,14 @@ class ToolManager:
         try:
             if tool == "manual_mask":
                 self.current_tool = ManualMask(self.parent.image_display)
-            elif tool == "sam2":
-                self.current_tool = SamMasker2(self.parent.image_display)
-            elif tool == "sam2_box":
-                self.current_tool = SamBoxMasker(self.parent.image_display)
+            elif tool == "sam":
+                variant = sam_registry.get_selected_variant()
+                logger.info("SAM tool using variant %r", variant.key)
+                if variant.family == "sam3":
+                    self.current_tool = Sam3Masker(self.parent.image_display)
+                else:
+                    self.current_tool = SamMasker2(self.parent.image_display,
+                                                   variant=variant)
             elif tool == "dextr":
                 self.current_tool = DEXTRMasker(self.parent.image_display)
             elif tool == "intelligent_scissors":
@@ -56,8 +64,16 @@ class ToolManager:
 
     def disable_tools(self):
         """
-        Disables all active tools.
+        Disables all active tools and frees the memory held by AI models.
         """
-        if self.current_tool:
-            self.current_tool.clear_temp_items()
-            self.current_tool = None
+        if self.current_tool is None:
+            return
+        self.current_tool.clear_temp_items()
+        was_sam = isinstance(self.current_tool, SamMasker2)
+        self.current_tool = None
+        if was_sam:
+            sam3_loader.unload_sam3_predictor()
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            logger.info("SAM model offloaded from memory")

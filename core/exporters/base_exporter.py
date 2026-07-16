@@ -1,5 +1,7 @@
 from pathlib import Path
+import numpy as np
 import yaml
+from shapely.geometry import Polygon
 from PyQt6.QtWidgets import QProgressDialog
 from PyQt6.QtCore import Qt
 
@@ -43,3 +45,8 @@ class BaseExporter:
         progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
         progress_dialog.setValue(0)
         return progress_dialog
+
+    @staticmethod
+    def simplify_polygon(mask, tolerance=0.01):
+        polygon = Polygon(mask)
+        return np.array(polygon.simplify(tolerance, preserve_topology=True).exterior.coords)

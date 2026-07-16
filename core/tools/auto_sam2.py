@@ -5,10 +5,9 @@ import cv2
 from PyQt6.QtGui import QPen, QColor, QPolygonF, QBrush
 from PyQt6.QtWidgets import QGraphicsPolygonItem, QMessageBox
 from PyQt6.QtCore import pyqtSignal, QObject, QPointF, QRunnable, QThreadPool, Qt
-from sam2.build_sam import build_sam2
 from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
+from core.tools.sam2_loader import load_sam2_model
 from services.logger import get_logger
-from services.file_handlers import get_resource_path
 
 logger = get_logger(__name__)
 
@@ -73,9 +72,7 @@ class Sam2Auto(QObject):
 
     def _load_sam2_model(self):
         """Load the SAM 2 model once."""
-        model_path = get_resource_path("sam2_configs/sam2_hiera_tiny.pt")
-        sam2_model = build_sam2("sam2_hiera_t.yaml", model_path, device=self.device)
-        return SAM2AutomaticMaskGenerator(sam2_model)
+        return SAM2AutomaticMaskGenerator(load_sam2_model(self.device))
 
     def generate_masks(self, image: np.ndarray):
         """

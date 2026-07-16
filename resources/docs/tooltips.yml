@@ -1,6 +1,5 @@
 manual_mask: "Draw a polygon manually by clicking points; press S to save."
-sam2: "Use the Segment Anything v2 model with foreground/background clicks; press E to segment. Then press S to save"
-sam2_box: "Draw a box and add clicks to guide the SAM2 model; press E to segment. Then press S to save"
+sam: "Segment Anything: left click = foreground, right click = background, Ctrl+drag = box. Press E to segment, then S to save."
 dextr: "Click 4 extreme points (top, bottom, left, right); press S to segment with DEXTR."
 intelligent_scissors: "Click to place seed points along object edges; press S to complete the mask."
 prev_image: "Go to the previous image."

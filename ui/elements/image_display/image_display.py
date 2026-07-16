@@ -3,7 +3,6 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QImage, QPixmap, QPainter, QPen, QColor
 from core.tools.manual_mask import ManualMask
 from core.tools.sam2_masker import SamMasker2
-from core.tools.sam2_boxmasker import SamBoxMasker
 from core.tools.dextr_mask import DEXTRMasker
 from core.tools.intellignent_scissors import IntelligentScissors
 from ui.custom_components.mask_context_menu import MaskContextMenu
@@ -254,8 +253,7 @@ class ImageDisplay(QGraphicsView):
         self.cached_image_with_masks = self.overlay_base_masks(self.parent.state_manager.current_image)
         self._set_base_pixmap(self.cached_image_with_masks)
 
-        if self.highlighted_mask_ids:
-            self.highlight_selected_masks(self.highlighted_mask_ids)
+        self.highlight_selected_masks(self.highlighted_mask_ids)
 
     def delete_selected_masks(self):
         if not self.highlighted_mask_ids:
@@ -332,7 +330,7 @@ class ImageDisplay(QGraphicsView):
             QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
             try:
                 tool = self.parent.tool_manager.current_tool
-                if isinstance(tool, (SamMasker2, SamBoxMasker, DEXTRMasker)):
+                if isinstance(tool, (SamMasker2, DEXTRMasker)):
                     tool.generate_mask(self.parent.state_manager.current_image)
             finally:
                 QApplication.restoreOverrideCursor()
@@ -360,12 +358,14 @@ class ImageDisplay(QGraphicsView):
             elif isinstance(tool, DEXTRMasker):
                 tool.add_point(point)
             elif isinstance(tool, SamMasker2):
-                tool.add_point(point, 1)
+                if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                    # Ctrl + left drag draws the bounding-box prompt
+                    tool.box_start = point
+                    tool.is_drawing_box = True
+                else:
+                    tool.add_point(point, 1)
             elif isinstance(tool, IntelligentScissors):
                 tool.add_seed_point(point)
-            elif isinstance(tool, SamBoxMasker):
-                tool.box_start = point
-                tool.is_drawing_box = True
 
         elif event.button() == Qt.MouseButton.RightButton:
             if self._edit_mode is not None:
@@ -415,7 +415,7 @@ class ImageDisplay(QGraphicsView):
         if isinstance(tool, IntelligentScissors) and getattr(tool, "seed_points", None):
             tool.update_dynamic_path((self.x, self.y))
 
-        if isinstance(tool, SamBoxMasker) and getattr(tool, "is_drawing_box", False):
+        if isinstance(tool, SamMasker2) and getattr(tool, "is_drawing_box", False):
             tool.update_box_preview(tool.box_start, point)
 
     def mouseReleaseEvent(self, event):
@@ -424,7 +424,7 @@ class ImageDisplay(QGraphicsView):
 
         if event.button() == Qt.MouseButton.LeftButton:
             tool = self.parent.tool_manager.current_tool
-            if isinstance(tool, SamBoxMasker) and getattr(tool, "is_drawing_box", False):
+            if isinstance(tool, SamMasker2) and getattr(tool, "is_drawing_box", False):
                 scene_pos = self.mapToScene(event.position().toPoint())
                 point = (int(scene_pos.x()), int(scene_pos.y()))
                 tool.add_box(tool.box_start, point)

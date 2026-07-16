@@ -2,6 +2,7 @@ import os
 import numpy as np
 import sys
 import yaml
+from pathlib import Path
 
 from services.logger import get_logger
 
@@ -75,15 +76,19 @@ def write_annotations_to_file(image_name, yolo_annotations, export_dir):
 
 
 def get_resource_path(rel_path):
-    """Get the absolute path to a resource, adjusting for executable and normal script execution."""
+    """Get the absolute path to a resource, adjusting for executable and normal script execution.
+
+    Accepts rel_path with '/' separators on any OS (str or Path) and returns
+    a str so callers can pass it straight to cv2/torch/open.
+    """
     if getattr(sys, 'frozen', False):
         # If the application is running as an executable (PyInstaller)
-        base_path = sys._MEIPASS  
+        base_path = Path(sys._MEIPASS)
     else:
         # Normal script execution: move one directory up to get out of 'services'
-        base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        base_path = Path(__file__).resolve().parent.parent
 
-    return os.path.join(base_path, rel_path)
+    return str(base_path / rel_path)
 
 def get_tooltip(tool):
     with open(get_resource_path('resources/docs/tooltips.yml'), 'r') as file:

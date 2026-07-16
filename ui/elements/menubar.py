@@ -1,7 +1,9 @@
 from PyQt6.QtWidgets import QMenuBar, QDialog, QVBoxLayout, QTextEdit, QPushButton, QTextBrowser
 from PyQt6.QtGui import QAction, QFont
-from ui.dialogs.export_dialog import ExportDialog 
+from ui.dialogs.export_dialog import ExportDialog
+from ui.dialogs.sam_model_dialog import SamModelDialog
 
+from core.tools import sam_registry
 from services.file_handlers import get_resource_path
 from services.logger import get_logger
 
@@ -28,6 +30,7 @@ class MenuBar(QMenuBar):
         self._init_file_menu()
         self._init_actions_menu()
         self._init_view_menu()
+        self._init_settings_menu()
         self._init_help_menu()
 
     def _init_file_menu(self):
@@ -51,7 +54,7 @@ class MenuBar(QMenuBar):
         actions_menu = self.addMenu("Actions")
 
         actions = [
-            ("Run Inference", lambda: self.parent.popup_inference_dialog(self.parent.models_dir, 'yolo', 'Running inference...')),
+            ("Run Inference", lambda: self.parent.popup_inference_dialog(self.parent.models_dir, 'Running inference...')),
              ("Train Custom Model", self.parent.popup_training_dialog)
         ]
 
@@ -79,6 +82,38 @@ class MenuBar(QMenuBar):
             lambda checked: self.parent.image_display.set_masks_visible(checked)
         )
         view_menu.addAction(self.toggle_masks_action)
+
+    def _init_settings_menu(self):
+        """
+        Create the Settings menu with user-configurable preferences.
+        """
+        settings_menu = self.addMenu("Settings")
+
+        actions = [
+            ("SAM Model...", self.show_sam_model_dialog),
+        ]
+
+        self._add_actions_to_menu(settings_menu, actions)
+
+    def show_sam_model_dialog(self):
+        """
+        Let the user pick the model behind the SAM tool; if the tool is
+        currently active, reload it with the new model right away.
+        """
+        dialog = SamModelDialog(self.parent)
+        if not dialog.exec():
+            return
+
+        key = dialog.selected_key()
+        if key is None or key == sam_registry.get_selected_key():
+            return
+
+        sam_registry.set_selected_key(key)
+        logger.info("SAM model preference changed to %r", key)
+        self.parent.sidebar.update_sam_tooltip()
+
+        if self.parent.sidebar.sam.isChecked():
+            self.parent.tool_manager.enable_tool("sam")
 
     def _init_help_menu(self):
         """

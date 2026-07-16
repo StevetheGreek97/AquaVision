@@ -1,12 +1,11 @@
 import numpy as np
 from PyQt6.QtGui import QPen, QColor, QPolygonF
-from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsPolygonItem
-from PyQt6.QtCore import pyqtSignal, QObject, QPointF
+from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsPolygonItem, QGraphicsRectItem
+from PyQt6.QtCore import pyqtSignal, QObject, QPointF, QRectF, Qt
 from sam2.sam2_image_predictor import SAM2ImagePredictor
-from sam2.build_sam import build_sam2
 import torch
 import cv2
-from services.file_handlers import get_resource_path
+from core.tools.sam2_loader import load_sam2_model
 from services.logger import get_logger
 
 logger = get_logger(__name__)
@@ -15,23 +14,31 @@ logger = get_logger(__name__)
 class SamMasker2(QObject):
     """
     A class for creating masks interactively using the SAM 2 model.
+
+    Prompts can be combined freely:
+    * left click        — positive (foreground) point
+    * right click       — negative (background) point
+    * Ctrl + left drag  — bounding box
     """
     mask_added = pyqtSignal(str, np.ndarray)
 
-    def __init__(self, parent, device: str = "cpu"):
+    def __init__(self, parent, device: str = "cpu", variant=None):
         """
         Initialize the Sam2 class.
 
         Args:
             parent: Reference to the parent ImageDisplay instance.
             device (str): Device to run the model on ('cpu' or 'cuda').
+            variant: Optional sam_registry.SamVariant choosing which
+                SAM2-family checkpoint to load (default: SAM2 Tiny).
         """
         super().__init__()
         self.parent = parent
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
+        self.variant = variant
 
-        # Load the SAM 2 model
-        self.predictor = self._load_sam2_model()
+        # Load the segmentation model (subclasses override _load_model)
+        self.predictor = self._load_model()
 
         # Interactive points and items
         self.foreground_points = []
@@ -39,15 +46,18 @@ class SamMasker2(QObject):
         self.foreground_items = []
         self.background_items = []
 
+        # Optional bounding-box prompt (drawn with Ctrl + left drag)
+        self.box = None  # np.array([x1, y1, x2, y2]) or None
+        self.box_item = None  # QGraphicsRectItem shown on the scene
+        self.is_drawing_box = False
+        self.box_start = None
+
         self.current_polygon_item = None  # Reference to displayed polygon
         self.mask = None
 
-    def _load_sam2_model(self):
+    def _load_model(self):
         """Load the SAM 2 model once."""
-        model_path = get_resource_path("sam2_configs/sam2_hiera_tiny.pt")
-        logger.info("Loading SAM2 model from %s (device=%s)", model_path, self.device)
-        sam2_model = build_sam2("sam2_hiera_t.yaml", model_path, device=self.device)
-        return SAM2ImagePredictor(sam2_model)
+        return SAM2ImagePredictor(load_sam2_model(self.device, self.variant))
 
     def _add_graphics_point(self, point: tuple, label: int):
         """Helper function to add a point to the scene."""
@@ -81,6 +91,42 @@ class SamMasker2(QObject):
         logger.debug("Added %s point at %s",
                      "foreground" if label == 1 else "background", point)
 
+    def add_box(self, start_point: tuple, end_point: tuple):
+        """
+        Set the bounding-box prompt and draw it on the scene.
+
+        Args:
+            start_point (tuple): One corner of the box (x1, y1).
+            end_point (tuple): The opposite corner (x2, y2).
+        """
+        self._set_box(start_point, end_point, QPen(QColor(0, 0, 255), 2))
+        logger.debug("Added bounding box %s", self.box)
+
+    def update_box_preview(self, start_point: tuple, end_point: tuple):
+        """Redraw the dashed box preview while the user is still dragging."""
+        self._set_box(start_point, end_point,
+                      QPen(QColor(0, 0, 255), 2, Qt.PenStyle.DashLine))
+
+    def _set_box(self, start_point: tuple, end_point: tuple, pen: QPen):
+        """Replace the current box (data + graphics item) with a new one."""
+        self.clear_box()
+
+        x1, y1 = start_point
+        x2, y2 = end_point
+        self.box = np.array([x1, y1, x2, y2])
+
+        rect = QRectF(x1, y1, x2 - x1, y2 - y1)
+        self.box_item = QGraphicsRectItem(rect)
+        self.box_item.setPen(pen)
+        self.parent.scene.addItem(self.box_item)
+
+    def clear_box(self):
+        """Remove any existing bounding box."""
+        if self.box_item:
+            self.parent.scene.removeItem(self.box_item)
+            self.box_item = None
+        self.box = None
+
     def display_polygon(self, polygon_points: list, color=QColor(0, 255, 0), line_width: int = 2):
         """
         Display a polygon on the scene using the provided points.
@@ -111,7 +157,7 @@ class SamMasker2(QObject):
 
     def generate_mask(self, image: np.ndarray) -> np.ndarray:
         """
-        Generate a mask using the SAM 2 model based on added points.
+        Generate a mask using the SAM 2 model based on added points and/or bounding box.
 
         Args:
             image (numpy.ndarray): The input image for mask generation.
@@ -119,8 +165,8 @@ class SamMasker2(QObject):
         Returns:
             numpy.ndarray: Generated mask.
         """
-        if not self.foreground_points:
-            logger.warning("Cannot generate mask: no foreground points added")
+        if self.box is None and not self.foreground_points:
+            logger.warning("Cannot generate mask: no box or foreground points added")
             return None
 
         points = np.array(self.foreground_points + self.background_points)
@@ -128,7 +174,10 @@ class SamMasker2(QObject):
 
         self.predictor.set_image(image)
         masks, scores, _ = self.predictor.predict(
-            point_coords=points, point_labels=labels, multimask_output=False
+            point_coords=points if len(points) > 0 else None,
+            point_labels=labels if len(labels) > 0 else None,
+            box=self.box[None, :] if self.box is not None else None,
+            multimask_output=False
         )
         mask = masks[0]
 
@@ -151,6 +200,10 @@ class SamMasker2(QObject):
         self.background_items.clear()
         self.foreground_points.clear()
         self.background_points.clear()
+
+        self.clear_box()
+        self.is_drawing_box = False
+        self.box_start = None
 
         if self.current_polygon_item:
             self.parent.scene.removeItem(self.current_polygon_item)
@@ -180,6 +233,6 @@ class SamMasker2(QObject):
         self.parent.parent.state_manager.mask_manager.save_mask(self.mask, image_name, class_name)
 
         self.mask_added.emit(image_name, self.mask)
-        logger.info("Saved SAM2 mask (%d points) for image %s as class %r",
-                    self.mask.shape[0], image_name, class_name)
+        logger.info("Saved %s mask (%d points) for image %s as class %r",
+                    type(self).__name__, self.mask.shape[0], image_name, class_name)
         self.clear_temp_items()
